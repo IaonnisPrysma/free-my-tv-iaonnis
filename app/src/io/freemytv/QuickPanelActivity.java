@@ -11,6 +11,7 @@ import android.graphics.Paint;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffXfermode;
 import android.graphics.RadialGradient;
+import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Shader;
 import android.graphics.drawable.ColorDrawable;
@@ -22,6 +23,7 @@ import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.WindowManager;
+import android.view.accessibility.AccessibilityNodeProvider;
 
 import java.util.List;
 
@@ -31,7 +33,8 @@ import java.util.List;
  * sound panels, network, remotes and accessories, accessibility and all settings. Each tile opens the TV's own screen;
  * Inputs lists them right here. Back, or the Settings button again, closes it.
  * Drawn as liquid glass: TVs turn window blur off (and video plays on its own plane, under any blur), so the glass is
- * painted: a smoky tint with slow drifting light inside, bright rims, and one focus lens that flows between the tiles.
+ * painted, nearly opaque so it reads over anything: the home screen's look (white with dark ink by day, smoked with
+ * white ink at night, Settings > Theme), faint light inside, bright rims, and one focus lens that flows between the tiles.
  */
 public class QuickPanelActivity extends Activity {
     /** A tile: its label, icon, accent color and the screens it may open, the first one the TV has wins. */
@@ -145,6 +148,8 @@ public class QuickPanelActivity extends Activity {
         private static final float PAD = 40, GAP = 14, TILE_H = 132, GRID_TOP = 184, ROW_H = 76, ROW_GAP = 10,
                 CARD_R = 46, TILE_R = 30, CHIP_R = 25, SYMBOL = 24;
         private static final int ROWS_VISIBLE = 6;
+        /** TalkBack's ids: a tile is its index + 1, an Inputs row ROW_IDS + its index + 1. */
+        private static final int ROW_IDS = 1000;
 
         private final float k;
         private final Tile[] tiles;
@@ -159,7 +164,14 @@ public class QuickPanelActivity extends Activity {
         private final Spring press = new Spring(0.22f, 0.6f, 0);
         private final Spring page = new Spring(0.4f, 0.9f, 0);
         private long lastFrame;
-        private final long born = SystemClock.uptimeMillis();
+
+        // The home screen's look: white glass with dark ink by day, smoked glass with white ink at night.
+        private final boolean night;
+        private final int ink, focusInk, tileFill;
+        private final String inputsTitle = Ui.tr("Inputs"), noInputs = Ui.tr("No inputs");
+        private String dateText = "", clockText = "";
+        private float clockBearing;
+        private final Spoken spoken;
 
         private final Paint date, clock, label, rowLabel, title, empty;
         private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG), rim = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -167,7 +179,11 @@ public class QuickPanelActivity extends Activity {
         private final RectF rect = new RectF(), card = new RectF();
         private LinearGradient tint, sheen, cardRim, tileRim, lens;
         private RadialGradient[] glows;
-        private final java.util.HashMap<Integer, LinearGradient> chips = new java.util.HashMap<>();   // made once per color
+        private final float[] glowX = {0.2f, 0.95f, 0.3f}, glowY = {0.15f, 0.55f, 0.95f};
+        // Each chip color's gradient, made once and looked up by color (no boxing in onDraw).
+        private final int[] chipColor = new int[16];
+        private final LinearGradient[] chipShader = new LinearGradient[16];
+        private int chips;
         private final float[] tileX = new float[8], tileY = new float[8], labelSize = new float[8];   // labelSize: shrunk to fit long words
         private float tileW;
 
@@ -176,10 +192,15 @@ public class QuickPanelActivity extends Activity {
                 invalidate();
             }
         };
+        /** Once a minute: the date and time, formatted here rather than every frame. */
         private final Runnable tick = new Runnable() {
             @Override public void run() {
+                long now = System.currentTimeMillis();
+                dateText = Ui.date(now);
+                clockText = Ui.clock(now);
+                clockBearing = Ui.leftBearing(clock, clockText);
                 invalidate();
-                postDelayed(this, 60_000 - System.currentTimeMillis() % 60_000);
+                postDelayed(this, 60_000 - now % 60_000);
             }
         };
 
@@ -187,32 +208,84 @@ public class QuickPanelActivity extends Activity {
             super(c);
             this.k = k;
             this.tiles = tiles;
-            date = Ui.text(Ui.medium, 24 * k, 0xCCFFFFFF);
-            clock = Ui.numbers(Ui.displaySemibold, 80 * k, 0xFFFFFFFF);
-            label = Ui.text(Ui.semibold, 24 * k, 0xFFFFFFFF);
-            rowLabel = Ui.text(Ui.semibold, 26 * k, 0xFFFFFFFF);
-            title = Ui.text(Ui.semibold, 30 * k, 0xFFFFFFFF);
-            empty = Ui.text(Ui.medium, 24 * k, 0xB3FFFFFF);
+            night = HomeData.get(c).isNight(System.currentTimeMillis());
+            ink = night ? 0xFFFFFFFF : 0xFF1D1D1F;
+            focusInk = night ? 0xFF1D1D1F : 0xFFFFFFFF;
+            tileFill = night ? 0x17FFFFFF : 0x0D000000;
+            date = Ui.text(Ui.medium, 24 * k, Ui.alpha(ink, 0.8f));
+            clock = Ui.numbers(Ui.displaySemibold, 80 * k, ink);
+            label = Ui.text(Ui.semibold, 24 * k, ink);
+            rowLabel = Ui.text(Ui.semibold, 26 * k, ink);
+            title = Ui.text(Ui.semibold, 30 * k, ink);
+            empty = Ui.text(Ui.medium, 24 * k, Ui.alpha(ink, 0.7f));
             rim.setStyle(Paint.Style.STROKE);
+            setFocusable(true);
+            spoken = new Spoken(this, new Spoken.Source() {
+                @Override public void items(List<Integer> out) {
+                    if (!inputsOpen) {
+                        for (int i = 0; i < tiles.length; i++) out.add(i + 1);
+                        return;
+                    }
+                    int first = firstRow();
+                    for (int i = first; i < Math.min(inputs.size(), first + ROWS_VISIBLE); i++) out.add(ROW_IDS + i + 1);
+                }
+                @Override public String text(int id) {
+                    if (id <= ROW_IDS) return id - 1 < tiles.length ? tiles[id - 1].label : "";
+                    int i = id - ROW_IDS - 1;
+                    if (inputs == null || i >= inputs.size()) return "";
+                    return inputs.get(i).label + ", " + Ui.trf("{i} of {n}", "i", i + 1, "n", inputs.size());
+                }
+                @Override public boolean bounds(int id, Rect out) {
+                    if (id <= ROW_IDS) {
+                        int i = id - 1;
+                        if (inputsOpen || i >= tiles.length) return false;
+                        out.set(Math.round(tileX[i]), Math.round(tileY[i]), Math.round(tileX[i] + tileW),
+                                Math.round(tileY[i] + TILE_H * k));
+                        return true;
+                    }
+                    int i = id - ROW_IDS - 1;
+                    if (!inputsOpen || i >= inputs.size()) return false;
+                    float y = rowTop(i);
+                    out.set(Math.round(PAD * k), Math.round(y), Math.round(getWidth() - PAD * k), Math.round(y + ROW_H * k));
+                    return true;
+                }
+                @Override public int focused() { return inputsOpen ? ROW_IDS + inputFocus + 1 : focus + 1; }
+                @Override public void focus(int id) {
+                    if (id > ROW_IDS) inputFocus = id - ROW_IDS - 1;
+                    else focus = id - 1;
+                    aimLens(false);
+                    invalidate();
+                }
+                @Override public void click(int id) { select(); }
+            });
             atop.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP));
             for (Tile t : tiles) Symbols.warm(c, t.symbol, SYMBOL * k);
             Symbols.warm(c, "tv", SYMBOL * k);
             show.target = 1;
         }
 
+        @Override public AccessibilityNodeProvider getAccessibilityNodeProvider() {
+            return spoken;
+        }
+
         @Override protected void onSizeChanged(int w, int h, int oldw, int oldh) {
             card.set(0, 0, w, h);
-            tint = new LinearGradient(0, 0, 0, h, 0xC21A1D3B, 0xD60B0C1E, Shader.TileMode.CLAMP);
-            sheen = new LinearGradient(0, 0, 0, h * 0.42f, 0x2EFFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP);
+            // ~95% opaque: with no blur behind it, the glass has to hold the text on its own, over a white or black screen.
+            tint = night ? new LinearGradient(0, 0, 0, h, 0xF22C2C30, 0xF71C1C1E, Shader.TileMode.CLAMP)
+                    : new LinearGradient(0, 0, 0, h, 0xF7FBFBFD, 0xF2EBEBF0, Shader.TileMode.CLAMP);
+            sheen = new LinearGradient(0, 0, 0, h * 0.42f, night ? 0x1FFFFFFF : 0x66FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP);
             cardRim = new LinearGradient(0, 0, w, h, new int[] {0xB3FFFFFF, 0x1AFFFFFF, 0x14FFFFFF, 0x66FFFFFF},
                     new float[] {0, 0.35f, 0.65f, 1}, Shader.TileMode.CLAMP);
-            tileRim = new LinearGradient(0, 0, 0, TILE_H * k, 0x59FFFFFF, 0x0FFFFFFF, Shader.TileMode.CLAMP);
-            lens = new LinearGradient(0, 0, 0, TILE_H * k, 0xFFFFFFFF, 0xFFE4E8F4, Shader.TileMode.CLAMP);
+            tileRim = night ? new LinearGradient(0, 0, 0, TILE_H * k, 0x40FFFFFF, 0x0AFFFFFF, Shader.TileMode.CLAMP)
+                    : new LinearGradient(0, 0, 0, TILE_H * k, 0x0A000000, 0x1A000000, Shader.TileMode.CLAMP);
+            lens = night ? new LinearGradient(0, 0, 0, TILE_H * k, 0xFFFFFFFF, 0xFFE4E8F4, Shader.TileMode.CLAMP)
+                    : new LinearGradient(0, 0, 0, TILE_H * k, 0xFF3A3A3C, 0xFF1D1D1F, Shader.TileMode.CLAMP);
+            // Faint light resting in the glass: it doesn't drift, the panel draws only while something moves.
             float r = 380 * k;
             glows = new RadialGradient[] {
-                new RadialGradient(0, 0, r, 0x8C7A4DFF, 0x007A4DFF, Shader.TileMode.CLAMP),
-                new RadialGradient(0, 0, r, 0x7322C4FF, 0x0022C4FF, Shader.TileMode.CLAMP),
-                new RadialGradient(0, 0, r * 0.85f, 0x66FF3D8B, 0x00FF3D8B, Shader.TileMode.CLAMP),
+                new RadialGradient(0, 0, r, 0x267A4DFF, 0x007A4DFF, Shader.TileMode.CLAMP),
+                new RadialGradient(0, 0, r, 0x2022C4FF, 0x0022C4FF, Shader.TileMode.CLAMP),
+                new RadialGradient(0, 0, r * 0.85f, 0x1AFF3D8B, 0x00FF3D8B, Shader.TileMode.CLAMP),
             };
             tileW = (w - 2 * PAD * k - GAP * k) / 2;
             float room = tileW - 44 * k;
@@ -229,7 +302,8 @@ public class QuickPanelActivity extends Activity {
 
         @Override protected void onAttachedToWindow() {
             super.onAttachedToWindow();
-            post(tick);
+            tick.run();
+            spoken.readAgain();
         }
 
         @Override protected void onDetachedFromWindow() {
@@ -272,9 +346,13 @@ public class QuickPanelActivity extends Activity {
             }
         }
 
+        /** The first Inputs row on screen: the list scrolls to keep the focused one in view. */
+        private int firstRow() {
+            return Math.max(0, Math.min(inputFocus - ROWS_VISIBLE + 1, inputs == null ? 0 : inputs.size() - ROWS_VISIBLE));
+        }
+
         private float rowTop(int i) {
-            int first = Math.max(0, Math.min(inputFocus - ROWS_VISIBLE + 1, inputs == null ? 0 : inputs.size() - ROWS_VISIBLE));
-            return (GRID_TOP + 58) * k + (i - first) * (ROW_H + ROW_GAP) * k;
+            return (GRID_TOP + 58) * k + (i - firstRow()) * (ROW_H + ROW_GAP) * k;
         }
 
         @Override protected void onDraw(Canvas c) {
@@ -295,33 +373,32 @@ public class QuickPanelActivity extends Activity {
             c.translate(-(1 - s) * (getWidth() + MARGIN * k), 0);
             int alpha = Math.round(255 * Math.min(1, s * 1.4f));
             c.saveLayerAlpha(card, alpha);
-            drawGlass(c, (now - born) / 1000f);
+            drawGlass(c);
             drawHeader(c);
             float p = page.value;
             if (p < 0.999f) drawTiles(c, 1 - p);
             if (inputs != null && p > 0.001f) drawInputs(c, p);
             c.restore();
             c.restore();
-            // The light inside the glass drifts as long as the panel is open.
-            postOnAnimation(frame);
+            if (moving) {
+                postOnAnimation(frame);
+            } else {
+                lastFrame = 0;   // at rest: the next move starts from one frame, not from the time spent still
+            }
         }
 
-        /** Smoky tinted glass with slow light drifting inside, a sheen at the top and a bright rim. */
-        private void drawGlass(Canvas c, float t) {
+        /** Tinted glass with faint light inside, a sheen at the top and a bright rim. */
+        private void drawGlass(Canvas c) {
             float r = CARD_R * k;
             c.saveLayer(card, layer);
+            fill.setAlpha(255);   // a shader is still scaled by the paint's alpha, which the last tile left low
             fill.setShader(tint);
             c.drawRoundRect(card, r, r, fill);
             fill.setShader(null);
             float w = card.width(), h = card.height();
-            float[][] paths = {
-                {0.15f + 0.22f * (float) Math.sin(t * 0.31), 0.18f + 0.12f * (float) Math.cos(t * 0.23)},
-                {0.92f + 0.12f * (float) Math.cos(t * 0.27), 0.55f + 0.2f * (float) Math.sin(t * 0.19)},
-                {0.3f + 0.25f * (float) Math.sin(t * 0.17 + 2), 0.95f + 0.1f * (float) Math.cos(t * 0.29)},
-            };
             for (int i = 0; i < glows.length; i++) {
                 c.save();
-                c.translate(paths[i][0] * w, paths[i][1] * h);
+                c.translate(glowX[i] * w, glowY[i] * h);
                 atop.setShader(glows[i]);
                 c.drawCircle(0, 0, 400 * k, atop);
                 c.restore();
@@ -340,9 +417,8 @@ public class QuickPanelActivity extends Activity {
         }
 
         private void drawHeader(Canvas c) {
-            long now = System.currentTimeMillis();
-            c.drawText(Ui.date(now), PAD * k, (PAD + 24) * k, date);
-            c.drawText(Ui.clock(now), PAD * k - Ui.leftBearing(clock, Ui.clock(now)), (PAD + 116) * k, clock);
+            c.drawText(dateText, PAD * k, (PAD + 24) * k, date);
+            c.drawText(clockText, PAD * k - clockBearing, (PAD + 116) * k, clock);
         }
 
         /** The grid: glass tiles, the lens under the focused one, then each tile's colored chip and label. */
@@ -352,7 +428,7 @@ public class QuickPanelActivity extends Activity {
             float r = TILE_R * k;
             for (int i = 0; i < tiles.length; i++) {
                 rect.set(tileX[i], tileY[i], tileX[i] + tileW, tileY[i] + TILE_H * k);
-                fill.setColor(0x17FFFFFF);
+                fill.setColor(tileFill);
                 c.drawRoundRect(rect, r, r, fill);
                 drawRim(c, rect, r);
             }
@@ -365,7 +441,7 @@ public class QuickPanelActivity extends Activity {
                 c.scale(1 + 0.03f * lift, 1 + 0.03f * lift, cx, cy);
                 float chipX = tileX[i] + (22 + CHIP_R) * k, chipY = tileY[i] + (22 + CHIP_R) * k;
                 drawChip(c, chipX, chipY, tiles[i].color, tiles[i].symbol, on);
-                label.setColor(mix(0xFFFFFFFF, 0xFF141826, on));
+                label.setColor(mix(ink, focusInk, on));
                 label.setTextSize(labelSize[i]);
                 c.drawText(tiles[i].label, tileX[i] + 22 * k, tileY[i] + TILE_H * k - 24 * k, label);
                 c.restore();
@@ -377,19 +453,19 @@ public class QuickPanelActivity extends Activity {
         private void drawInputs(Canvas c, float a) {
             int saved = c.saveLayerAlpha(card, Math.round(255 * a));
             c.translate(0, (1 - a) * 24 * k);
-            c.drawText(Ui.tr("Inputs"), PAD * k, (GRID_TOP + 30) * k, title);
+            c.drawText(inputsTitle, PAD * k, (GRID_TOP + 30) * k, title);
             if (inputs.isEmpty()) {
-                c.drawText(Ui.tr("No inputs"), PAD * k, (GRID_TOP + 100) * k, empty);
+                c.drawText(noInputs, PAD * k, (GRID_TOP + 100) * k, empty);
                 c.restoreToCount(saved);
                 return;
             }
             float r = 24 * k, w = getWidth() - 2 * PAD * k;
-            int first = Math.max(0, Math.min(inputFocus - ROWS_VISIBLE + 1, inputs.size() - ROWS_VISIBLE));
+            int first = firstRow();
             int last = Math.min(inputs.size(), first + ROWS_VISIBLE);
             for (int i = first; i < last; i++) {
                 float y = rowTop(i);
                 rect.set(PAD * k, y, PAD * k + w, y + ROW_H * k);
-                fill.setColor(0x17FFFFFF);
+                fill.setColor(tileFill);
                 c.drawRoundRect(rect, r, r, fill);
                 drawRim(c, rect, r);
             }
@@ -398,10 +474,10 @@ public class QuickPanelActivity extends Activity {
                 HomeApps.Item it = inputs.get(i);
                 float y = rowTop(i);
                 float on = nearness(PAD * k, y, w);
-                float dim = it.connected ? 1 : 0.55f;
+                float dim = it.connected ? 1 : 0.7f;   // still 4.5:1 on the light glass
                 drawChip(c, PAD * k + 46 * k, y + ROW_H * k / 2, it.kind == HomeApps.LIVE_TV ? 0xFFFF9F0A : 0xFF30B0C7,
                         it.symbol != null ? it.symbol : "hdmi", on);
-                rowLabel.setColor(Ui.alpha(mix(0xFFFFFFFF, 0xFF141826, on), Math.max(dim, on)));
+                rowLabel.setColor(Ui.alpha(mix(ink, focusInk, on), Math.max(dim, on)));
                 c.drawText(it.label, PAD * k + 92 * k, y + ROW_H * k / 2 + Ui.halfCap(rowLabel), rowLabel);
             }
             c.restoreToCount(saved);
@@ -444,12 +520,13 @@ public class QuickPanelActivity extends Activity {
             rect.set(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2);
             c.save();
             c.translate(0, rect.top);
+            fill.setAlpha(255);
             fill.setShader(lens);
             rect.offset(0, -rect.top);
             c.drawRoundRect(rect, radius, radius, fill);
             fill.setShader(null);
             rim.setStrokeWidth(1.4f * k);
-            rim.setColor(0xFFFFFFFF);
+            rim.setColor(night ? 0xFFFFFFFF : 0x33000000);
             c.drawRoundRect(rect, radius, radius, rim);
             c.restore();
         }
@@ -457,13 +534,18 @@ public class QuickPanelActivity extends Activity {
         /** A circle in the tile's color (lighter at the top, like lit glass) with its white symbol. */
         private void drawChip(Canvas c, float cx, float cy, int color, String symbol, float on) {
             float r = CHIP_R * k;
-            LinearGradient lit = chips.get(color);
+            LinearGradient lit = null;
+            for (int i = 0; i < chips && lit == null; i++) if (chipColor[i] == color) lit = chipShader[i];
             if (lit == null) {
                 lit = new LinearGradient(0, -r, 0, r, mix(color, 0xFFFFFFFF, 0.28f), color, Shader.TileMode.CLAMP);
-                chips.put(color, lit);
+                if (chips < chipColor.length) {
+                    chipColor[chips] = color;
+                    chipShader[chips++] = lit;
+                }
             }
             c.save();
             c.translate(cx, cy);
+            fill.setAlpha(255);
             fill.setShader(lit);
             c.drawCircle(0, 0, r, fill);
             fill.setShader(null);
@@ -486,6 +568,7 @@ public class QuickPanelActivity extends Activity {
                             page.target = 0;
                             aimLens(false);
                             invalidate();
+                            spoken.focusMoved();
                         } else {
                             close();
                         }
@@ -507,7 +590,8 @@ public class QuickPanelActivity extends Activity {
                         invalidate();
                     } else if (!down) {
                         press.target = 0;
-                        select();
+                        invalidate();
+                        if (spoken.keyClick()) select();   // TalkBack's click may have come first for this press
                     }
                     return true;
                 default:
@@ -532,6 +616,7 @@ public class QuickPanelActivity extends Activity {
             click.move();
             aimLens(false);
             invalidate();
+            spoken.focusMoved();
         }
 
         private void select() {
@@ -548,6 +633,7 @@ public class QuickPanelActivity extends Activity {
                 page.target = 1;
                 aimLens(false);
                 invalidate();
+                spoken.focusMoved();
                 return;
             }
             if (open(tiles[focus].intents)) finish();
