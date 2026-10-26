@@ -59,7 +59,7 @@ import java.util.function.Consumer;
  * Measurements are in a 1920×1080 space (k = width / 1920). The screen is split into layers so the TV's weak GPU only
  * redraws what changed.
  */
-final class HomeView extends ViewGroup implements Choreographer.FrameCallback, HomeData.Listener, Recs.Listener, Wallpaper.Listener {
+final class HomeView extends ViewGroup implements Choreographer.FrameCallback, HomeData.Listener, Recs.Listener {
     // tvOS grid (Human Interface Guidelines): content inside the safe area, 80 px from the sides and 60 from top and
     // bottom; 40 px between items; 7 columns of 217 px (the apps). The shelf glass extends 36 px past the tiles (the
     // same padding on all four sides) and the tile corners are concentric with it (glass radius = radius + padding).
@@ -96,10 +96,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final float L_TITLE_BASE = 130, L_TABBAR_TOP = 158, L_TABBAR_H = 68, L_CARDS_TOP = 262, L_CARD_H = 442;
     private static final float L_TALL_W = 320, L_CARD_GAP = 40, L_BUTTON = 68, L_BUTTON_GAP = 20, L_BUTTON_CY = 103;
     private static final float L_PLATTER_TOP = 814, L_TILE_H = 126;
-    // The photo of the day's caption: on the buttons' line, ending before them, on a dark chip. Measured on 15 of
-    // Bing's photos with the scrims: at least 4.6:1 even over a white sky (without the chip, down to 1.4:1).
-    private static final float L_CAPTION_BASE = 110, L_CAPTION_R = 1520, CAPTION_PAD = 16, CAPTION_H = 40;
-    private static final int CAPTION_INK = 0xEBFFFFFF, CAPTION_CHIP = 0x80000000;
     private static final float L_DATE_BASE = 330, L_CLOCK_BASE = 540, L_WEATHER_BASE = 626, L_QUOTES_BASE = 694;
     private static final int L_INK = 0xFF1D1D1F, L_DIM = 0xFF6E6E73, L_FAINT = 0xFF8E8E93;
     private static String[] tabs;
@@ -112,7 +108,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final HomeData data;
     private final Recs recs;
     private final NowPlaying.Watch playing;
-    private final Wallpaper wallpaper;
     private final Click click;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final SharedPreferences ui;
@@ -153,7 +148,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final RectF[] cardRects = new RectF[3];
     private final List<HomeApps.Item> lightButtons = new ArrayList<>();
     private Paint lTitle, lTab, lTabOn, lCardTitle, lCardMeta, lQuote, lTip, lDate, lClock, lWeather, lClockQuote;
-    private TextPaint lCaption;
     private Shader lightGradient;
 
     // Shelf
@@ -250,8 +244,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private long weatherLineAt = -1;
     private int weatherLinePrefs = -1;
     private String weatherLineLanguage = "";
-    private String captionLine = "", captionFrom;   // the photo of the day's caption, shortened to fit (and its source)
-    private float captionW;
     private long clockMinute = -1;
     private boolean okDown, backDown;
 
@@ -367,7 +359,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             updatePalette();
             checkNight(true);
             updatePicks();      // three new ones every hour
-            if (photoTheme()) wallpaper.refreshIfStale();
             updateSleep();
             handler.postDelayed(this, 15_000);
         }
@@ -378,13 +369,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         activity = a;
         data = HomeData.get(a);
         recs = Recs.get(a);
-        playing = new NowPlaying.Watch(a, () -> {
-            fitPlaying();
-            heroDirty = true;
-            wake();
-            bounceBars();
-        });
-        wallpaper = Wallpaper.get(a);
+        playing = new NowPlaying.Watch(a, this::onPlaying);
         click = new Click(a);
         shelfVisible = HomeApps.shelfVisible(a);
         ui = a.getSharedPreferences("home-ui", Context.MODE_PRIVATE);
@@ -452,10 +437,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lastStep = 0;
         data.addListener(this);
         recs.addListener(this);
-        wallpaper.setListener(this);
         data.refreshIfStale();
         recs.refreshIfStale();
-        onWallpaper();   // the theme or your photos may have changed in Home Settings
         Photos.importInbox(getContext(), ownReady);   // photos a computer just sent
         if (tvInputs != null) tvInputs.registerCallback(inputCallback, handler);
         handler.postDelayed(tick, 15_000);
@@ -493,7 +476,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         playing.stop();
         data.removeListener(this);
         recs.removeListener(this);
-        wallpaper.setListener(null);
         if (tvInputs != null) tvInputs.unregisterCallback(inputCallback);
     }
 
@@ -557,34 +539,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         layoutStatus();
         heroDirty = statusDirty = drawerDirty = true;
         platter.invalidate();
-    }
-
-    /**
-     * The photo of the day arrived, or its theme (or your photos) changed: fetch it when wanted, let it go when not (it
-     * holds a full-screen texture, a lot on a 1 GB TV), and redraw the background and the glass.
-     */
-    @Override public void onWallpaper() {
-        if (photoTheme()) wallpaper.refreshIfStale();
-        else wallpaper.release();
-        photoShown = photoTheme() ? wallpaper.backdrop() : null;
-        if (bgTo == null && bgFadeAt == 0) neutralGlass();
-        heroDirty = statusDirty = tilesDirty = drawerDirty = true;
-        invalidateAll();
-    }
-
-    /** The "Photo of the day" theme, where it applies: no picks, and your own photos off (no Bing request then). */
-    private boolean photoTheme() {
-        return Prefs.theme().equals("photo") && !picksOn() && !Photos.on(getContext());
-    }
-
-    /**
-     * The photo of the day behind the clock, once downloaded; null otherwise. Kept by onWallpaper (on resume, when the
-     * photo arrives, when your photos change): dark() asks for it inside every tone(), many times a frame.
-     */
-    private Backdrop photoShown;
-
-    private Backdrop photoBg() {
-        return photoShown;
     }
 
     @Override public void onRecs() {
@@ -685,8 +639,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lClock.setLetterSpacing(-0.01f);
         lWeather = Ui.text(Ui.medium, 34 * k, L_DIM);
         lClockQuote = Ui.numbers(Ui.medium, 28 * k, L_DIM);
-        lCaption = new TextPaint(Ui.text(Ui.medium, 22 * k, CAPTION_INK));
-        captionFrom = null;
         lightGradient = null;
         buttonPaint = Ui.text(Ui.semibold, 29 * k, INK);
         capsuleText = Ui.numbers(Ui.medium, 29 * k, 0xF2FFFFFF);
@@ -730,7 +682,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         border.setStrokeWidth(2 * k);
         rim.setStyle(Paint.Style.STROKE);
         rim.setStrokeWidth(2.5f * k);
-        fitPlaying();
+        onPlaying();   // the line fits the new size; a title that came before the first layout bounces and is said now
     }
 
     // MARK: - Frames: 60 per second while something moves; nothing is redrawn when still
@@ -741,6 +693,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lastNanos = frameTimeNanos;
         long up = SystemClock.uptimeMillis();
 
+        settleWhileSliding();
         boolean tilesMoving = step(tileFocus, dt);
         if (reorderAnim) tilesMoving |= stepReorder(dt, up);
         boolean statusMoving = step(statusFocus, dt);
@@ -823,6 +776,32 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float scale = 1.04f - 0.04f * s;
         sheetLayer.setScaleX(scale);
         sheetLayer.setScaleY(scale);
+    }
+
+    /**
+     * While the drawer slides, the focus in the drawer, the hero and the capsule jumps instead of animating: the shelf's
+     * focus alone is cheap over the sliding sky (10 ms a frame on a Realtek TCL), but a redraw of the drawer's cards or
+     * of the hero on top of it took 35 to 45 ms of GPU there (most frames dropped when a key came during the slide).
+     */
+    private void settleWhileSliding() {
+        if (drawer.settled()) return;
+        if (settle(drawerFocus)) drawerDirty = true;
+        if (settle(cardFocus) | settle(topFocus)) heroDirty = statusDirty = true;
+        if (settle(statusFocus)) statusDirty = true;
+        if (!heroFocus.settled()) {
+            heroFocus.snap(heroFocus.target);
+            heroDirty = true;
+        }
+    }
+
+    private static boolean settle(Spring[] springs) {
+        boolean moved = false;
+        for (Spring s : springs) {
+            if (s.settled()) continue;
+            s.snap(s.target);
+            moved = true;
+        }
+        return moved;
     }
 
     private static void show(View v, float alpha, float translationY) {
@@ -963,22 +942,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** No photo: the glass reads the background's own gray (not Scene's default aurora, which isn't on screen). */
     private void neutralGlass() {
-        Backdrop photo = photoBg();
-        if (photo != null && scene.shaded()) {
-            // The photo of the day, dimmed at night: day and night glass blended by the GPU, as for the picks.
-            scene.setFrost(night < 0.5f ? photo.frost : photo.nightFrost);
-            if (nightAt != 0) {
-                if (!nightPair) {
-                    scene.setGlassImages(photo.glass, photo.nightGlass);
-                    nightPair = true;
-                }
-                scene.setGlassMix(night);
-            } else {
-                scene.setGlassImage(night < 0.5f ? photo.glass : photo.nightGlass);
-                nightPair = false;
-            }
-            return;
-        }
         if (!scene.shaded()) {   // Android 8 to 12: a gray image would be one more full-area pass for the flat look
             scene.clearFrost();
             scene.clearGlass();
@@ -1056,7 +1019,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** How dark it is: 0 = day, 1 = night (in between during the transition). */
     private float dark() {
-        if (photoBg() != null) return 1;     // white text over the photo of the day, by day too
         return night;
     }
 
@@ -1348,10 +1310,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private String playingTab, playingClock;
     private float playingTabWidth, playingTabCap, playingClockCap;
     private final RectF barRect = new RectF();
-    // The bars bounce for a few seconds when the screen shows or the title changes, then stand still: bouncing all
-    // along redrew the top layer 10 times a second (~8% of a core on a Skyworth's Cortex-A55), the still screen nothing.
+    // The bars bounce for a few seconds when the title changes, then stand still: bouncing all along redrew the top
+    // layer 10 times a second (~8% of a core on a Skyworth's Cortex-A55), the still screen nothing.
     private static final long BAR_FRAME_MS = 100, BARS_BOUNCE_MS = 3000;
     private long barsUntil;
+    private String shownTitle;   // kept while the screen is hidden: showing it again with the same title is no change
     private final Runnable bars = new Runnable() {
         @Override public void run() {
             if (!running || playingTab == null) return;
@@ -1366,6 +1329,31 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (playingTab == null) return;
         barsUntil = SystemClock.uptimeMillis() + BARS_BOUNCE_MS;
         handler.post(bars);
+    }
+
+    /** What's playing changed (or stopped). */
+    private void onPlaying() {
+        fitPlaying();
+        heroDirty = true;
+        wake();
+        // Only a new title bounces the bars and is said to TalkBack: not a subtitle some players rewrite every second (the
+        // time), and not the same title again when the screen shows.
+        String title = playing.title, now = playing.text;
+        if (title != null && now != null && running && playingTab != null && !title.equals(shownTitle)) {
+            shownTitle = title;
+            bounceBars();
+            if (readerOn()) announceForAccessibility(Ui.trf("Now playing: {what}", "what", now.replace(" · ", ", ")));
+        }
+    }
+
+    /**
+     * A screen reader is on (TalkBack, or another service that speaks): only then is a new title announced. Other
+     * accessibility services (a button mapper, a sleep timer) would get the announcement too, for nothing.
+     */
+    private boolean readerOn() {
+        AccessibilityManager am = getContext().getSystemService(AccessibilityManager.class);
+        return am != null && am.isEnabled()
+                && !am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_SPOKEN).isEmpty();
     }
 
     private void fitPlaying() {
@@ -3010,9 +2998,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** Your photo's background is ready (or new photos came in): draw it. */
     private final Runnable ownReady = () -> {
-        if (!running) return;
-        updatePicks();
-        onWallpaper();   // your photos came in: the photo of the day goes, and Bing isn't asked
+        if (running) updatePicks();
     };
 
     private void selectTab(int index) {
@@ -3027,15 +3013,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
      * same photo almost black (or a dark gradient), drawn on top during the transition.
      */
     private void drawLightSky(Canvas c) {
-        Backdrop photo = photoBg();
-        if (photo != null) {
-            // Darker with the drawer open and at night (like the picks' night image), both at once when both apply.
-            float open = 0.42f * Ui.clamp(drawer.value), dim = Backdrop.NIGHT_DIM * night;
-            imagePaint.setColorFilter(veil(1 - (1 - open) * (1 - dim), 0xFF000000));
-            drawImage(c, photo.image, 1);
-            imagePaint.setColorFilter(null);
-            return;
-        }
         long up = SystemClock.uptimeMillis();
         float e = bgFadeAt == 0 ? 1 : fadeEase(bgFadeAt, up);
         boolean fading = bgFadeAt != 0;
@@ -3074,7 +3051,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         applyTone();
         if (!picksOn()) {
             drawClock(c);
-            drawCaption(c);
             if (HomeData.coinCount() > 0 || playingTab != null) drawQuotes(c);
             return;
         }
@@ -3113,24 +3089,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     private boolean picksOn() {
         return Recs.hasKey(getContext());
-    }
-
-    /** At the top left, across from the buttons, on a dark chip: what is in the photo of the day and whose it is. */
-    private void drawCaption(Canvas c) {
-        if (photoBg() == null) return;
-        String caption = wallpaper.caption();
-        if (!caption.equals(captionFrom)) {
-            captionFrom = caption;
-            captionLine = TextUtils.ellipsize(caption, lCaption, (L_CAPTION_R - MARGIN - 2 * CAPTION_PAD) * k, TextUtils.TruncateAt.END).toString();
-            captionW = lCaption.measureText(captionLine);
-        }
-        if (captionLine.isEmpty()) return;
-        float base = L_CAPTION_BASE * k, mid = base - Ui.halfCap(lCaption), half = CAPTION_H / 2 * k;
-        tmp.set(MARGIN * k, mid - half, MARGIN * k + captionW + 2 * CAPTION_PAD * k, mid + half);
-        fill.setShader(null);
-        fill.setColor(CAPTION_CHIP);
-        c.drawRoundRect(tmp, half, half, fill);
-        c.drawText(captionLine, (MARGIN + CAPTION_PAD) * k, base, lCaption);
     }
 
     private void drawClock(Canvas c) {

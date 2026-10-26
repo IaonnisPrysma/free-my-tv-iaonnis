@@ -52,6 +52,7 @@ public class SettingsActivity extends Activity {
         super.onCreate(savedInstanceState);
         if (openFireHome(getIntent())) return;
         Watchdog.install(this);
+        Updates.schedule(this);   // the week's update check, once (a fresh install has had no boot or update yet)
         Ui.init(this);
         SleepTimer.listen(this);   // :home may start here, from the launcher icon
         SleepTimer.check(this);
@@ -167,6 +168,9 @@ public class SettingsActivity extends Activity {
         private String choiceNow = "";
         private final List<String[]> cities = new ArrayList<>();
         private String cityStatus = "";
+        private JSONObject updates = new JSONObject();   // Updates' file (the main process writes it), read in poll
+        private long checkAskedAt, installAskedAt;       // OK on Updates, on the wall clock as the file's "at"
+        private String installed = "";                   // this app's version (an update starts a new process)
         private final RectF tmp = new RectF(), rowRect = new RectF(), focusBox = new RectF();
         private JSONObject state = new JSONObject(), recs = new JSONObject();
         private boolean hasKey;
@@ -184,7 +188,7 @@ public class SettingsActivity extends Activity {
         private int w, h;
         private float k = 1;
         private Paint title, subtitle, version, rowLabel, rowValue, rowSub, header, cellLabel, cellValue, warn, spinner, white, shadow;
-        private TextPaint notice;
+        private TextPaint notice, rowValueFit;
 
         private final Runnable poll = new Runnable() {
             @Override public void run() {
@@ -193,6 +197,11 @@ public class SettingsActivity extends Activity {
                 sleepLeft = SleepTimer.minutesLeft(getContext());
                 hasKey = Recs.hasKey(getContext());
                 recs = Recs.status(getContext());
+                String updatesWas = updatesValue();
+                updates = Updates.state(getContext());
+                if (screen == HOME_SETTINGS && pickScroll + focus == updatesRow() && !updatesWas.equals(updatesValue())) {
+                    spoken.focusMoved();   // TalkBack reads the Updates row's new value
+                }
                 boolean nowBusy = !busyText().isEmpty();
                 if (nowBusy) pendingAt = 0;
                 // What can change the reasons away from a key: a switch (or the watchdog's revert) and the overlay's and the
@@ -209,7 +218,7 @@ public class SettingsActivity extends Activity {
                 }
                 wasBusy = nowBusy;
                 invalidate();
-                handler.postDelayed(this, busy() ? 500 : 2000);
+                handler.postDelayed(this, busy() || updating() ? 500 : 2000);
             }
         };
 
@@ -223,6 +232,7 @@ public class SettingsActivity extends Activity {
             scene.applyPalette();
             setFocusable(true);
             setContentDescription("Free My TV");
+            installed = Updates.installedVersion(a);
             // TalkBack: one item per row, id = row + 1.
             spoken = new Spoken(this, new Spoken.Source() {
                 @Override public void items(List<Integer> out) { for (int i = 1; i <= rowCount(); i++) out.add(i); }
@@ -361,6 +371,7 @@ public class SettingsActivity extends Activity {
             rowLabel = Ui.text(Ui.medium, 30 * k, 0xF2FFFFFF);
             rowValue = Ui.text(Ui.regular, 28 * k, 0x8CFFFFFF);
             rowValue.setTextAlign(Paint.Align.RIGHT);
+            rowValueFit = new TextPaint(rowValue);
             rowSub = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
             header = Ui.text(Ui.semibold, 21 * k, 0x73FFFFFF);
             header.setLetterSpacing(0.06f);
@@ -704,9 +715,9 @@ public class SettingsActivity extends Activity {
 
         // MARK: - Home Settings and Remote Buttons
 
-        private static final String[] UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark", "photo"};
+        private static final String[] UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark"};
         /** Home Settings: language, temperature, theme, my photos, sounds, watch from the screensaver, weather, city, forecast,
-         *  now playing, quotes, then one row per coin. */
+         *  now playing, quotes, one row per coin, then updates (the last row). */
         private static final int PHOTOS_ROW = 3, SAVER_ROW = 5, WEATHER_ROW = 6, CITY_ROW = 7, FORECAST_ROW = 8, PLAYING_ROW = 9,
                 QUOTES_ROW = 10, COIN_ROWS = 11;
         /** Home Settings rows on screen at once (what fits above the hints at 1080p); a longer list scrolls. */
@@ -733,7 +744,13 @@ public class SettingsActivity extends Activity {
             l.add("Ethereum");
             l.add("Solana");
             if (dollar()) l.add(Ui.tr("Dollar"));
+            l.add(Ui.tr("Updates"));
             return l.toArray(new String[0]);
+        }
+
+        /** The Updates row: the last one, after the coins. */
+        private int updatesRow() {
+            return settingLabels().length - 1;
         }
 
         private String[] settingValues() {
@@ -744,8 +761,7 @@ public class SettingsActivity extends Activity {
             String unit = Prefs.temperature();
             v[1] = unit.equals("C") ? "°C" : unit.equals("F") ? "°F" : Ui.tr("unit|Automatic");
             String theme = Prefs.theme();
-            v[2] = theme.equals("light") ? Ui.tr("Light") : theme.equals("dark") ? Ui.tr("Dark")
-                    : theme.equals("photo") && !Recs.hasKey(getContext()) ? Ui.tr("Photo of the day") : Ui.tr("Automatic");
+            v[2] = theme.equals("light") ? Ui.tr("Light") : theme.equals("dark") ? Ui.tr("Dark") : Ui.tr("Automatic");
             int photos = Photos.files(getContext()).size();
             v[PHOTOS_ROW] = photos == 0 ? Ui.tr("photos|None")
                     : Prefs.photos() ? Ui.plural("plural|one:{n} photo|other:{n} photos", photos) : Ui.tr("Off");
@@ -757,7 +773,8 @@ public class SettingsActivity extends Activity {
             v[PLAYING_ROW] = onOff(Prefs.nowPlaying());
             v[QUOTES_ROW] = onOff(Prefs.quotes());
             // No quotes widget, nowhere to show prices: the coins read as off (and stay locked) until it is back on.
-            for (int i = COIN_ROWS; i < v.length; i++) v[i] = onOff(Prefs.quotes() && Prefs.coin(i - COIN_ROWS));
+            for (int i = COIN_ROWS; i < v.length - 1; i++) v[i] = onOff(Prefs.quotes() && Prefs.coin(i - COIN_ROWS));
+            v[v.length - 1] = updatesValue();
             return v;
         }
 
@@ -803,7 +820,7 @@ public class SettingsActivity extends Activity {
                 whyScroll = pickScroll;
                 for (int r = 0; r < n; r++) {
                     String need = need(r);
-                    whyRows[r] = screen == HOME_SETTINGS && pickScroll + r >= COIN_ROWS && !Prefs.quotes()
+                    whyRows[r] = screen == HOME_SETTINGS && pickScroll + r >= COIN_ROWS && pickScroll + r < updatesRow() && !Prefs.quotes()
                             ? Ui.tr("Turn on the Quotes widget to pick its coins.")
                             : need == null ? null : Capabilities.missing(getContext(), need);
                 }
@@ -1013,11 +1030,8 @@ public class SettingsActivity extends Activity {
                     break;
                 }
                 case 2: {
-                    // The photo of the day shows only without picks (with them, the first card's photo is the background).
-                    int n = Recs.hasKey(getContext()) ? THEMES.length - 1 : THEMES.length;
                     int at = java.util.Arrays.asList(THEMES).indexOf(Prefs.theme());
-                    if (at >= n) at = 0;
-                    Prefs.setTheme(THEMES[(at + dir + n) % n]);
+                    Prefs.setTheme(THEMES[(at + dir + THEMES.length) % THEMES.length]);
                     SleepOverlay.update(getContext());   // the pill's glass follows
                     break;
                 }
@@ -1038,7 +1052,7 @@ public class SettingsActivity extends Activity {
                     break;
                 case QUOTES_ROW: Prefs.setQuotes(!Prefs.quotes()); break;
                 default:
-                    if (!Prefs.quotes()) return;
+                    if (row == updatesRow() || !Prefs.quotes()) return;
                     Prefs.setCoin(row - COIN_ROWS, !Prefs.coin(row - COIN_ROWS));
                     break;
             }
@@ -1063,6 +1077,47 @@ public class SettingsActivity extends Activity {
                 return true;
             });
             dialog.show();
+        }
+
+        // MARK: - Updates (GitHub's releases)
+
+        /**
+         * OK on Updates: installs one that's ready, else checks now. Both run as jobs in the main process, as the week's
+         * check does, so one process writes the state; this screen reads it in poll.
+         */
+        private void updateNow() {
+            Context c = getContext();
+            updates = Updates.state(c);
+            long now = System.currentTimeMillis();
+            if (Updates.ready(updates, installed)) {
+                if (now - installAskedAt < 5000) return;   // Android's installer is on its way
+                installAskedAt = now;
+                ModeJob.schedule(c, ModeJob.INSTALL, "", 0);
+            } else {
+                if (Updates.busy(updates) || checkAsked()) return;
+                checkAskedAt = now;
+                ModeJob.schedule(c, ModeJob.UPDATE, "", 0);
+            }
+            handler.removeCallbacks(poll);
+            handler.postDelayed(poll, 500);
+            invalidate();
+            spoken.focusMoved();
+        }
+
+        /** OK asked for a check that hasn't started yet (the job writes "checking" as it starts). */
+        private boolean checkAsked() {
+            long now = System.currentTimeMillis();
+            return now - checkAskedAt < 10_000 && updates.optLong("at") < checkAskedAt;
+        }
+
+        /** The Updates row: what the last check found, or "Checking…" from OK until the check starts. */
+        private String updatesValue() {
+            return checkAsked() ? Ui.tr("Checking…") : Updates.summary(updates, installed);
+        }
+
+        /** A check or an install on its way or under way: poll reads the file more often. */
+        private boolean updating() {
+            return Updates.busy(updates) || System.currentTimeMillis() - Math.max(checkAskedAt, installAskedAt) < 10_000;
         }
 
         // MARK: - My Photos (sent from a computer: tools/photos.py)
@@ -1301,7 +1356,10 @@ public class SettingsActivity extends Activity {
                 if (locked) rowLabel.setColor(blend(0x73FFFFFF, 0x731C1C1E, f));
                 float base = rowRect.centerY() + Ui.halfCap(rowLabel);
                 c.drawText(labels[from + i], rowRect.left + 30 * k, base, rowLabel);
-                c.drawText(values[from + i], rowRect.right - 30 * k, base, rowValue);
+                // A long value (an update that failed, a city) stops short of its label.
+                float room = rowRect.width() - 100 * k - rowLabel.measureText(labels[from + i]);
+                c.drawText(TextUtils.ellipsize(values[from + i], rowValueFit, room, TextUtils.TruncateAt.END).toString(),
+                        rowRect.right - 30 * k, base, rowValue);
             }
             Paint hint = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
             float hy = (LIST_TOP + 20 + rows * pitch + 36) * k;
@@ -1312,6 +1370,8 @@ public class SettingsActivity extends Activity {
                     ? Ui.tr("Send them from a computer: see “Your own photos” in the README.")
                     : Ui.tr("OK removes them; the arrows turn them on or off."))
                     : screen == POWER && powerRow() != P_SHOW && unavailable(focus) == null ? Ui.tr("OK opens the list. ← → change the value.")
+                    : screen == HOME_SETTINGS && from + focus == updatesRow() ? (Updates.ready(updates, installed)
+                    ? Ui.tr("OK installs it; Android asks first.") : Ui.tr("OK checks for a new version."))
                     : Ui.tr("OK or the arrows change the value.")), LIST_X * k + 30 * k, hy, hint);
             if (keys) {
                 c.drawText(RemoteKeys.VESTEL ? Ui.tr("YouTube, Prime Video and Google Play: the TV itself controls those buttons.")
@@ -1370,6 +1430,9 @@ public class SettingsActivity extends Activity {
                 return;
             } else if (screen == HOME_SETTINGS && pickScroll + focus == PHOTOS_ROW) {
                 askRemovePhotos();
+                return;
+            } else if (screen == HOME_SETTINGS && pickScroll + focus == updatesRow()) {
+                updateNow();
                 return;
             } else if (screen == POWER) {
                 activatePower();
