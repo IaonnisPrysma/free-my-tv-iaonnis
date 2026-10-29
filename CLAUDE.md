@@ -185,7 +185,12 @@ Developer Mode; Samsung's home screen stays. Two ways:
    apps (not the native ones, below).
 8. **Tell them:** *Autorun Last App* in the TV's settings (under Start Screen Options; where it is changes by year)
    makes the TV turn on into Free My TV on a 2017 set; 2019 and 2020 sets don't reopen Developer Mode apps with it
-   (#356), so there they move it to the first place in the Home bar.
+   (#356), so there they move it to the first place in the Home bar. A Tizen Web Service declared `on-boot` that
+   reopens it when the TV comes on worked on a 2019 RU7099 and a 2020 Q80T (a fork's opt-in build, #356), but only
+   signed with a Partner-level distributor certificate bound to that TV's DUID, which the person requests from Samsung
+   with their own account (Samsung decides who gets that level): the release and TizenBrew's builds can't carry it,
+   a build with another author certificate means uninstalling first (Home Settings and the TMDB key go with it), and
+   certificates, their passwords and the DUID never go in the chat.
 
 ## Releases
 
