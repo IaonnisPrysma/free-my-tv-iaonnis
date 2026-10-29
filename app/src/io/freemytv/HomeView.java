@@ -2931,7 +2931,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         wake();
         if (menuOpen) return menuKey(e);
         boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
-        if (recents != null && recents.visible()) {
+        if (recents != null && recents.isOpen()) {   // not as it fades out: an OK or ▲ then is the home screen's, not a card's
             int was = recents.focus();
             boolean handled = recents.key(e);
             recentLayer.invalidate();
@@ -3500,7 +3500,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final int GRID = 9, WIDGETS = 8, MENU_ITEMS = 10, RECENT_CARDS = 11;
 
     private boolean recentsOpen() {
-        return recents != null && recents.visible();
+        return recents != null && recents.isOpen();   // not while it fades out: TalkBack reads the home screen again
     }
 
     private static int a11yId(int group, int index) {

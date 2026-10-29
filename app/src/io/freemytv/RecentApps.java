@@ -40,8 +40,11 @@ final class RecentApps {
     private static final float[] LEFT = {625, 1035, 1625, 2125};
     private static final float[] SCALE = {1, 0.88f, 0.78f, 0.7f};
     private static final Pattern SIZE = Pattern.compile("sz=(\\d+)");
-    /** The task's affinity ("A=10087:com.netflix.ninja"; Android 8 to 10 write it without the uid) or its intent ("I="). */
-    private static final Pattern PACKAGE = Pattern.compile("(?:A=(?:\\d+:)?|I=)([\\w.]+)");
+    /**
+     * The task's affinity ("A=10087:com.netflix.ninja"; Android 8 to 10 write it without the uid, and Android 12 and 13
+     * as "10087-si:" for a singleInstance activity, such as Kodi's) or its intent ("I=").
+     */
+    private static final Pattern PACKAGE = Pattern.compile("(?:A=(?:\\d+(?:-si)?:)?|I=)([\\w.]+)");
 
     private final Activity activity;
     private final Host host;
@@ -81,6 +84,11 @@ final class RecentApps {
 
     boolean visible() {
         return open || shown.value > 0.001f;
+    }
+
+    /** Open, not fading out: the keys and TalkBack are its own (once closed, the home screen's again). */
+    boolean isOpen() {
+        return open;
     }
 
     /** Opaque over the whole screen: what is below needn't be drawn. */
@@ -427,7 +435,7 @@ final class RecentApps {
                 if (down && focus < cards.size() - 1) focus++;
                 return true;
             case KeyEvent.KEYCODE_DPAD_UP:
-                if (down) closeFocused();
+                if (down && e.getRepeatCount() == 0) closeFocused();   // one app a press: held, it went on to the next
                 return true;
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:

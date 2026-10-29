@@ -941,7 +941,9 @@ public class SettingsActivity extends Activity {
         private static final int CLOCK_ROW = 3, PHOTOS_ROW = 4, TOP_ROW = 6, PICKS_ROW = 7, WATCH_ROW = 8,
                 SAVER_ROW = 9, ANDROID_APPS_ROW = 10, STATUS_ICONS_ROW = 11, RECENTS_ROW = 12, WEATHER_ROW = 13, CITY_ROW = 14,
                 FORECAST_ROW = 15, PLAYING_ROW = 16, QUOTES_ROW = 17, COIN_ROWS = 18;
-        private static final String[] RECENTS = {"off", "drawer", "home"};
+        /** No "home" on Xiaomi TVs: their remote sends one Home press as a burst of presses (HomeView.BURST_MS). */
+        private static final String[] RECENTS = RemoteKeys.XIAOMI ? new String[] {"off", "drawer"}
+                : new String[] {"off", "drawer", "home"};
         /** Home Settings rows on screen at once (what fits above the hints at 1080p); a longer list scrolls. */
         private static final int SETTINGS_VISIBLE = 10;
 
