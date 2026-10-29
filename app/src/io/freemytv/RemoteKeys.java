@@ -91,15 +91,6 @@ final class RemoteKeys {
         int source = e.getSource();
         if ((source & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD
                 || (source & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK) return false;
-        // TCL's Settings button sends NOTIFICATION, which only Google TV's home app (off in our mode) answers with its
-        // quick settings panel: open ours, over what's playing.
-        if (TCL && e.getKeyCode() == KeyEvent.KEYCODE_NOTIFICATION) {
-            if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
-                AppLog.w("remote key " + e.getKeyCode() + " -> quick panel");
-                c.startActivity(new Intent(c, QuickPanelActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-            }
-            return true;
-        }
         int keyCode = TCL && e.getKeyCode() == KEY_YOUTUBE_TCL ? Prefs.KEY_YOUTUBE : e.getKeyCode();
         if (JVC_SKYWORTH) {
             if (SkyworthRemote.settings(keyCode)) keyCode = Prefs.KEY_JVC_SETTINGS;
@@ -132,7 +123,9 @@ final class RemoteKeys {
                     : JVC_SKYWORTH && pkg.equals(Prefs.TV_SHORTCUTS)
                     ? new Intent(Intent.ACTION_MAIN).setClassName("com.smartdevice.dailyshortcut",
                             "com.smartdevice.dailyshortcut.ui.MainActivity")
-                    : JVC_SKYWORTH && pkg.equals("com.android.tv.settings")
+                    : TCL && pkg.equals(Prefs.QUICK_PANEL)
+                    ? new Intent(c, QuickPanelActivity.class)
+                    : (JVC_SKYWORTH || TCL) && pkg.equals("com.android.tv.settings")
                     ? new Intent(android.provider.Settings.ACTION_SETTINGS).setPackage(pkg)
                     : launchIntent(c.getPackageManager(), pkg);
             if (pkg.equals(Prefs.ALL_APPS)) intent.putExtra(HomeActivity.EXTRA_ALL_APPS, true);

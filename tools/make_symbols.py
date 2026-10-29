@@ -20,7 +20,7 @@ MAP = {
     "live_tv": ("live_tv", 1), "bitcoin": ("currency_bitcoin", 0),
     "wifi": ("wifi", 1), "ethernet": ("lan", 1), "bluetooth": ("bluetooth_connected", 1), "usb": ("usb", 1),
     "keystone": ("settings_overscan", 1), "cast": ("cast", 1),
-    "bluetooth": ("bluetooth", 0), "wifi": ("wifi", 0), "accessibility": ("accessibility_new", 0),
+    "accessibility": ("accessibility_new", 0),
 }
 
 

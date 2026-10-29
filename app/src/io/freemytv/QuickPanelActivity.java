@@ -28,7 +28,8 @@ import android.view.accessibility.AccessibilityNodeProvider;
 import java.util.List;
 
 /**
- * The quick settings panel the remote's Settings button opens in Free My TV mode, over whatever is playing (Google TV's
+ * The quick settings panel a TCL remote's Settings button can open in Free My TV mode (a Remote Buttons choice; TV
+ * Settings is the default), over whatever is playing (Google TV's
  * own panel lives in its home app, which is off in our mode): the time, and tiles for the inputs, the TV's picture and
  * sound panels, network, remotes and accessories, accessibility and all settings. Each tile opens the TV's own screen;
  * Inputs lists them right here. Back, or the Settings button again, closes it.

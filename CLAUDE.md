@@ -386,8 +386,11 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   button has nothing to open without `launcherx`. Hisense keeps only error logs: `adb shell setprop log.tag.FreeMyTV I`
   before reading `adb logcat -s FreeMyTV`.
   TCL's Settings button sends `KEYCODE_NOTIFICATION`, which only Google TV's home app (launcherx, off in our mode)
-  answers with its quick settings panel; `RemoteKeys` opens `QuickPanelActivity` instead: our own panel over what's
-  playing (a window on the left, drawn as glass since TVs turn window blur off), whose tiles open the TV's own screens
+  answers with its quick settings panel. It is a *Remote Buttons* row (`Prefs.KEY_TCL_SETTINGS`) whose default is TV
+  Settings (`com.android.tv.settings`, as #289 does from the home screen); its choice `Prefs.QUICK_PANEL` makes
+  `RemoteKeys` open `QuickPanelActivity`, and *Nothing* leaves the key alone (`HomeView` too, as for Hisense). On TCL's
+  Android 11 the key service is off (#325), so there the row works on the home screen only. The panel is our own, over
+  what's playing (a window on the left, drawn as glass since TVs turn window blur off), whose tiles open the TV's own screens
   (TCL's Picture and Sound panels through `DISPLAY_SETTINGS` and `VIEW_SOUND_SETTINGS`; TCL Google TV 14 tested).
   The Google TV Streamer (`RemoteKeys.GOOGLE_STREAMER`: model `Google TV Streamer`, device `kirkwood`, Android 14
   tested) maps YouTube to `BUTTON_3`, Netflix to `BUTTON_4` and its custom star button to `MACRO_1` (313, API 34), from
