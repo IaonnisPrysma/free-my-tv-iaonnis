@@ -204,7 +204,8 @@ public class SettingsActivity extends Activity {
         private JSONObject state = new JSONObject(), recs = new JSONObject();
         private boolean hasKey;
         private int screen = MAIN, focus;
-        private boolean running, okDown, backDown, wasBusy;
+        private boolean running, okDown, backDown, wasBusy, framePending;
+        private String pollStamp = "";
         private StaticLayout errorLayout;   // the last error, wrapped (rebuilt only when it changes)
         private Toast whyToast;   // why the focused option is unavailable
         private String[] whyRows;  // each row's reason, worked out once per screen (null: again on the next frame)
@@ -259,7 +260,12 @@ public class SettingsActivity extends Activity {
                     if (newest != null) announceForAccessibility(newest.optString("text"));
                 }
                 wasBusy = nowBusy;
-                invalidate();
+                // State files are read as before; unchanged polling must not redraw the whole settings scene.
+                String stamp = state.toString() + recs.toString() + updates.toString() + ":" + sleepLeft + ":" + whyNow
+                        + ":" + hasKey + ":" + pendingAt + ":" + stalled + ":" + busy() + ":" + updatesValue()
+                        + ":" + (Trakt.available() ? traktValue() : "") + ":" + System.currentTimeMillis() / 60_000;
+                if (!stamp.equals(pollStamp)) invalidate();
+                pollStamp = stamp;
                 handler.postDelayed(this, busy() || updating() ? 500 : 2000);
             }
         };
@@ -398,7 +404,7 @@ public class SettingsActivity extends Activity {
             lastNanos = 0;
             handler.post(poll);
             if (watchGrantPending) handler.postDelayed(askWatch, WATCH_GRANT_MS);
-            Choreographer.getInstance().postFrameCallback(this);
+            invalidate();
             spoken.readAgain();
             Photos.importInbox(getContext(), this::invalidate);   // photos a computer just sent
         }
@@ -409,6 +415,7 @@ public class SettingsActivity extends Activity {
             handler.removeCallbacks(poll);
             handler.removeCallbacks(askWatch);
             Choreographer.getInstance().removeFrameCallback(this);
+            framePending = false;
             if (keyPage != null) {   // the phone's page answers only while its code shows (not after Home, standby, another app)
                 stopKeyPage();
                 setKeyStatus(Ui.tr("This code has expired."), false);
@@ -417,11 +424,9 @@ public class SettingsActivity extends Activity {
         }
 
         @Override public void doFrame(long frameTimeNanos) {
+            framePending = false;
             if (!running) return;
-            boolean moving = busy();
-            for (Spring s : pop) moving |= !s.settled();
-            if (moving || SystemClock.uptimeMillis() - lastSky >= 100) invalidate();
-            Choreographer.getInstance().postFrameCallback(this);
+            invalidate();
         }
 
         @Override protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight) {
@@ -513,9 +518,16 @@ public class SettingsActivity extends Activity {
             long now = System.nanoTime();
             float dt = lastNanos == 0 ? 1 / 60f : Math.min(0.05f, (now - lastNanos) / 1e9f);
             lastNanos = now;
+            boolean moving = screen == MAIN && busy(); // Only the main list draws the switch spinner.
             for (int i = 0; i < pop.length; i++) {
                 pop[i].target = i == focus && i < rowCount() ? 1 : 0;
-                pop[i].step(dt);
+                moving |= pop[i].step(dt);
+            }
+            // Every input/asynchronous update already invalidates. Draws restart animation until focus settles.
+            // Keep the existing scene, layout and blur treatment; only continuous idle work stops.
+            if (running && moving && !framePending) {
+                framePending = true;
+                Choreographer.getInstance().postFrameCallback(this);
             }
             long up = SystemClock.uptimeMillis();
             float seconds = (up - startedAt) / 1000f;
