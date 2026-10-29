@@ -215,6 +215,9 @@ public class SettingsActivity extends Activity {
         private String errorShown;
         private final Spoken spoken;
         private long startedAt, lastNanos, pendingAt, lastSky;
+        // The aurora's own clock, which runs only in the frames drawn: it rests with the screen, and the next key or the
+        // minute's redraw doesn't jump it ahead (at this speed, a minute moves it a whole noise cell).
+        private float skySeconds;
         private long requestedAt;   // the switch asked for: its stamp, to tell whether its job ever started
         private boolean stalled;    // it didn't: a TV maker's background blocker (stalledText says what to do)
         private int w, h;
@@ -260,10 +263,12 @@ public class SettingsActivity extends Activity {
                     if (newest != null) announceForAccessibility(newest.optString("text"));
                 }
                 wasBusy = nowBusy;
-                // State files are read as before; unchanged polling must not redraw the whole settings scene.
+                // Redrawn only when something shown changed: also My Photos' count (Immich's arrive while it shows) and
+                // the minute (the notices' "{n} min ago").
                 String stamp = state.toString() + recs.toString() + updates.toString() + ":" + sleepLeft + ":" + whyNow
                         + ":" + hasKey + ":" + pendingAt + ":" + stalled + ":" + busy() + ":" + updatesValue()
-                        + ":" + (Trakt.available() ? traktValue() : "") + ":" + System.currentTimeMillis() / 60_000;
+                        + ":" + (Trakt.available() ? traktValue() : "") + ":" + System.currentTimeMillis() / 60_000
+                        + ":" + (screen == HOME_SETTINGS ? Photos.files(getContext()).size() : 0);
                 if (!stamp.equals(pollStamp)) invalidate();
                 pollStamp = stamp;
                 handler.postDelayed(this, busy() || updating() ? 500 : 2000);
@@ -523,17 +528,17 @@ public class SettingsActivity extends Activity {
                 pop[i].target = i == focus && i < rowCount() ? 1 : 0;
                 moving |= pop[i].step(dt);
             }
-            // Every input/asynchronous update already invalidates. Draws restart animation until focus settles.
-            // Keep the existing scene, layout and blur treatment; only continuous idle work stops.
+            // Frames only while something moves; whatever changes the screen calls invalidate(), which starts them again.
             if (running && moving && !framePending) {
                 framePending = true;
                 Choreographer.getInstance().postFrameCallback(this);
             }
             long up = SystemClock.uptimeMillis();
-            float seconds = (up - startedAt) / 1000f;
+            float seconds = (up - startedAt) / 1000f;   // the spinner's
+            skySeconds += dt;
             if (up - lastSky >= 100) {
                 lastSky = up;
-                scene.advance(seconds);
+                scene.advance(skySeconds);
             }
             scene.drawBackground(c);
 
