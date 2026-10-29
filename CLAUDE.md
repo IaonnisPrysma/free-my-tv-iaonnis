@@ -386,6 +386,13 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   button has nothing to open without `launcherx`. Hisense keeps only error logs: `adb shell setprop log.tag.FreeMyTV I`
   before reading `adb logcat -s FreeMyTV`.
   `adb shell input keyevent` doesn't test any of these: injected keys skip the accessibility key filter.
+- On the JVC G24 TV (Skyworth, Android 11), `SkyworthRemote` narrowly matches the verified Inputs shortcut
+  scan codes and the Quick Settings key. Inputs opens `com.smartdevice.dailyshortcut` directly: its vendor receiver
+  otherwise crashes querying a disabled Google TV provider. Quick Settings opens the model-specific compact native
+  panel. Home, volume, unrelated scan codes and gamepads stay with Android; Original removes the existing key service.
+  Keeping all of Google TV enabled is not a substitute on this model: its HOME priority overrides our launcher.
+  `bash tools/test-remote.sh` checks the model/firmware and key boundaries. Physical remote presses are required for
+  an end-to-end check; injected `adb shell input keyevent` events skip the accessibility filter.
 - What's playing (`NowPlaying`) comes from the apps' media sessions, which Android hands only to an allowed notification
   listener. A listener could read every notification, so ours follows Home Settings' *Now Playing widget* (off by
   default): turning it on allows it through ADB (`HomeMode.nowPlayingAccess`, `cmd notification allow_listener`; the
