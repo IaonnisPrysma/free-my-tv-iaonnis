@@ -204,7 +204,8 @@ public class SettingsActivity extends Activity {
         private JSONObject state = new JSONObject(), recs = new JSONObject();
         private boolean hasKey;
         private int screen = MAIN, focus;
-        private boolean running, okDown, backDown, wasBusy;
+        private boolean running, okDown, backDown, wasBusy, framePending;
+        private String pollStamp = "";
         private StaticLayout errorLayout;   // the last error, wrapped (rebuilt only when it changes)
         private Toast whyToast;   // why the focused option is unavailable
         private String[] whyRows;  // each row's reason, worked out once per screen (null: again on the next frame)
@@ -214,6 +215,9 @@ public class SettingsActivity extends Activity {
         private String errorShown;
         private final Spoken spoken;
         private long startedAt, lastNanos, pendingAt, lastSky;
+        // The aurora's own clock, which runs only in the frames drawn: it rests with the screen, and the next key or the
+        // minute's redraw doesn't jump it ahead (at this speed, a minute moves it a whole noise cell).
+        private float skySeconds;
         private long requestedAt;   // the switch asked for: its stamp, to tell whether its job ever started
         private boolean stalled;    // it didn't: a TV maker's background blocker (stalledText says what to do)
         private int w, h;
@@ -259,7 +263,14 @@ public class SettingsActivity extends Activity {
                     if (newest != null) announceForAccessibility(newest.optString("text"));
                 }
                 wasBusy = nowBusy;
-                invalidate();
+                // Redrawn only when something shown changed: also My Photos' count (Immich's arrive while it shows) and
+                // the minute (the notices' "{n} min ago").
+                String stamp = state.toString() + recs.toString() + updates.toString() + ":" + sleepLeft + ":" + whyNow
+                        + ":" + hasKey + ":" + pendingAt + ":" + stalled + ":" + busy() + ":" + updatesValue()
+                        + ":" + (Trakt.available() ? traktValue() : "") + ":" + System.currentTimeMillis() / 60_000
+                        + ":" + (screen == HOME_SETTINGS ? Photos.files(getContext()).size() : 0);
+                if (!stamp.equals(pollStamp)) invalidate();
+                pollStamp = stamp;
                 handler.postDelayed(this, busy() || updating() ? 500 : 2000);
             }
         };
@@ -398,7 +409,7 @@ public class SettingsActivity extends Activity {
             lastNanos = 0;
             handler.post(poll);
             if (watchGrantPending) handler.postDelayed(askWatch, WATCH_GRANT_MS);
-            Choreographer.getInstance().postFrameCallback(this);
+            invalidate();
             spoken.readAgain();
             Photos.importInbox(getContext(), this::invalidate);   // photos a computer just sent
         }
@@ -409,6 +420,7 @@ public class SettingsActivity extends Activity {
             handler.removeCallbacks(poll);
             handler.removeCallbacks(askWatch);
             Choreographer.getInstance().removeFrameCallback(this);
+            framePending = false;
             if (keyPage != null) {   // the phone's page answers only while its code shows (not after Home, standby, another app)
                 stopKeyPage();
                 setKeyStatus(Ui.tr("This code has expired."), false);
@@ -417,11 +429,9 @@ public class SettingsActivity extends Activity {
         }
 
         @Override public void doFrame(long frameTimeNanos) {
+            framePending = false;
             if (!running) return;
-            boolean moving = busy();
-            for (Spring s : pop) moving |= !s.settled();
-            if (moving || SystemClock.uptimeMillis() - lastSky >= 100) invalidate();
-            Choreographer.getInstance().postFrameCallback(this);
+            invalidate();
         }
 
         @Override protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight) {
@@ -513,15 +523,22 @@ public class SettingsActivity extends Activity {
             long now = System.nanoTime();
             float dt = lastNanos == 0 ? 1 / 60f : Math.min(0.05f, (now - lastNanos) / 1e9f);
             lastNanos = now;
+            boolean moving = screen == MAIN && busy(); // Only the main list draws the switch spinner.
             for (int i = 0; i < pop.length; i++) {
                 pop[i].target = i == focus && i < rowCount() ? 1 : 0;
-                pop[i].step(dt);
+                moving |= pop[i].step(dt);
+            }
+            // Frames only while something moves; whatever changes the screen calls invalidate(), which starts them again.
+            if (running && moving && !framePending) {
+                framePending = true;
+                Choreographer.getInstance().postFrameCallback(this);
             }
             long up = SystemClock.uptimeMillis();
-            float seconds = (up - startedAt) / 1000f;
+            float seconds = (up - startedAt) / 1000f;   // the spinner's
+            skySeconds += dt;
             if (up - lastSky >= 100) {
                 lastSky = up;
-                scene.advance(seconds);
+                scene.advance(skySeconds);
             }
             scene.drawBackground(c);
 
@@ -1229,6 +1246,9 @@ public class SettingsActivity extends Activity {
         }
 
         private String[] keyLabels() {
+            if (RemoteKeys.GOOGLE_STREAMER) return new String[] {Ui.tr("YouTube button"), Ui.tr("Netflix button"),
+                    Ui.tr("Custom button") + " \u2605"};
+            if (RemoteKeys.JVC_SKYWORTH) return new String[] {Ui.tr("Inputs"), Ui.tr("Settings button")};
             if (RemoteKeys.HISENSE) return new String[] {Ui.tr("Prime Video button"), Ui.tr("YouTube button"),
                     Ui.tr("Disney+ button"), Ui.tr("All Apps button"), Ui.tr("Settings button"), Ui.tr("Profile button")};
             if (RemoteKeys.STEM_NETFLIX) return new String[] {Ui.tr("Netflix button")};
@@ -1264,14 +1284,21 @@ public class SettingsActivity extends Activity {
             appPkgs.clear();
             appLabels.clear();
             appPkgs.add("");
-            // On Sony and Xiaomi, "nothing" leaves the key to the TV, which opens its usual app.
-            appLabels.add(RemoteKeys.SONY ? Ui.tr("Sony default") : RemoteKeys.XIAOMI ? Ui.tr("Xiaomi default") : Ui.tr("Nothing"));
+            // An empty choice leaves the key to the system's receiver.
+            appLabels.add(RemoteKeys.GOOGLE_STREAMER ? Ui.tr("Google default")
+                    : RemoteKeys.SONY ? Ui.tr("Sony default") : RemoteKeys.XIAOMI ? Ui.tr("Xiaomi default") : Ui.tr("Nothing"));
+            if (RemoteKeys.JVC_SKYWORTH) {
+                appPkgs.add(Prefs.TV_SHORTCUTS);
+                appLabels.add(Ui.tr("Inputs"));
+                appPkgs.add(Prefs.QUICK_SETTINGS);
+                appLabels.add(Ui.tr("Quick Settings"));
+            }
             // On Xiaomi the Mi button is the remote's Home button: it can open this home screen.
             if (RemoteKeys.XIAOMI) {
                 appPkgs.add(HomeMode.PKG);
                 appLabels.add("Free My TV");
             }
-            if (RemoteKeys.HISENSE) {
+            if (RemoteKeys.HISENSE || RemoteKeys.GOOGLE_STREAMER) {
                 appPkgs.add(Prefs.ALL_APPS);
                 appLabels.add(Ui.tr("All Apps"));
             }
@@ -2195,9 +2222,10 @@ public class SettingsActivity extends Activity {
                 c.drawText(RemoteKeys.VESTEL ? Ui.tr("YouTube, Prime Video and Google Play: the TV itself controls those buttons.")
                         : RemoteKeys.KTC ? Ui.tr("Netflix, YouTube and Prime Video: the TV itself controls those buttons.")
                         : RemoteKeys.SONY ? Ui.tr("Sony default: the button opens what it always did.")
-                        : RemoteKeys.FORMOVIE ? Ui.tr("The other buttons: the TV itself controls them.")
+                        : RemoteKeys.FORMOVIE || RemoteKeys.JVC_SKYWORTH ? Ui.tr("The other buttons: the TV itself controls them.")
                         : RemoteKeys.XIAOMI ? Ui.tr("Xiaomi default: the button opens what it always did.")
                         : RemoteKeys.HISENSE ? Ui.tr("Netflix: the TV itself controls that button.")
+                        : RemoteKeys.GOOGLE_STREAMER ? Ui.tr("The other buttons: the TV itself controls them.")
                         : RemoteKeys.supported() ? Ui.tr("Disney and Globoplay: the TV itself controls those buttons.")
                         : Ui.tr("TCL remote buttons: on this TV they work as always."), LIST_X * k + 30 * k, hy + 38 * k, hint);
                 // No key service on this TV (RemoteKeys.FILTER_SAFE): inside other apps the buttons do nothing.
