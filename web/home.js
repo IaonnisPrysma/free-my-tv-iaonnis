@@ -750,6 +750,10 @@
         step: function (d) { cycle('temperature', ['auto', 'C', 'F'], unit, d); renderPanels(); }},
       {label: tr('Theme'), value: theme === 'light' ? tr('Light') : theme === 'dark' ? tr('Dark') : auto,
         step: function (d) { cycle('theme', ['auto', 'light', 'dark'], theme, d); checkNight(); }},
+      {label: tr('Dim'), value: dimName(),
+        step: function (d) { cycle('dim', ['off', 'low', 'medium', 'high', 'auto'], Prefs.dim(), d); applyDim(); }},
+      {label: tr('Screensaver'), value: saverMode() === 'clock' ? tr('Clock') : tr('Photos'),
+        step: function (d) { cycle('saver', ['photos', 'clock'], saverMode(), d); }},
       {label: tr('Picks per tab'), value: String(Prefs.cards()),
         step: function (d) { Prefs.set('cards', 3 + (Prefs.cards() - 3 + (d || 1) + 4) % 4); renderCards(); }},
       {label: tr('Watch from the screensaver'), toggle: Prefs.saverWatch(),
@@ -1428,6 +1432,28 @@
 
   var saverOn = false, idleAt = Date.now(), saverIndex = 0, saverTimer = 0, saverPick = null, SAVER_AFTER = 5 * 60000;
 
+  /** "photos" (the picks' photos, as it always was) or "clock": what the screen shows when nobody touches it. */
+  function saverMode() { return Prefs.saver(); }
+
+  /** Dim, as the person picked it: off, low, medium, high, or automatic (medium from 22:00 to 07:00). */
+  function dimName() {
+    var v = Prefs.dim();
+    return v === 'low' ? tr('dim|Low') : v === 'medium' ? tr('dim|Medium') : v === 'high' ? tr('dim|High')
+      : v === 'auto' ? tr('Automatic') : tr('Off');
+  }
+
+  function dimLevel() {
+    var v = Prefs.dim();
+    if (v === 'auto') { var h = new Date().getHours(); return h >= 22 || h < 7 ? 2 : 0; }
+    return v === 'low' ? 1 : v === 'medium' ? 2 : v === 'high' ? 3 : 0;
+  }
+
+  /** The panel's brightness is a private API: this is a black layer over the picture instead. */
+  function applyDim() {
+    var level = dimLevel();
+    $('dim').className = 'layer' + (level ? ' d' + level : '');
+  }
+
   /** The screensaver's photos: picks with an app on the TV. */
   function saverPhotos() {
     return Data.showcase().filter(function (p) { return p.backdrop && Data.usable(p.app); });
@@ -1485,8 +1511,45 @@
     setClass($('saver'), 'on', false);
   }
 
+  // MARK: - The clock screensaver: a clock, the weather, and a few pixels of shift every half minute
+
+  var ambientOn = false, ambientTimer = 0;
+
+  function showAmbient() {
+    var a = $('ambient'), w = Data.weather;
+    a.innerHTML = '';
+    var shift = el('div', 'shift', a);
+    el('div', 'clock', shift, formatDate('format|h:mm', Date.now()));
+    el('div', 'date', shift, formatDate('format|EEEE, MMMM d', Date.now()));
+    var side = el('div', 'side', shift);
+    el('div', 'temp', side, w ? Data.degrees(w.temp) : '—');
+    if (w) el('div', 'cond', side, Data.condition(w.code, w.isDay));
+    ambientOn = true;
+    setClass(a, 'on', true);
+    ambientTimer = setInterval(tickAmbient, 30000);
+    tickAmbient();
+  }
+
+  function tickAmbient() {
+    if (!ambientOn) return;
+    var a = $('ambient'), shift = a.querySelector('.shift'), d = new Date();
+    var clock = a.querySelector('.clock'), date = a.querySelector('.date');
+    if (clock) clock.textContent = formatDate('format|h:mm', d.getTime());
+    if (date) date.textContent = formatDate('format|EEEE, MMMM d', d.getTime());
+    // A clock that never moves is what burns into an OLED: a few pixels every half minute.
+    if (shift) shift.style.webkitTransform = shift.style.transform =
+      'translate(' + Math.round(Math.sin(d.getMinutes() * 0.7) * 6) + 'px,' + Math.round(Math.cos(d.getMinutes() * 0.9) * 5) + 'px)';
+  }
+
+  function hideAmbient() {
+    ambientOn = false;
+    clearInterval(ambientTimer);
+    setClass($('ambient'), 'on', false);
+  }
+
   function poke(ok) {
     idleAt = Date.now();
+    if (ambientOn) { hideAmbient(); return true; }
     if (!saverOn) return false;
     var app = ok && saverPick && Prefs.saverWatch() && Data.appFor(saverPick.app);
     hideSaver();
@@ -1562,6 +1625,7 @@
   /** Back to the home screen (the app was opened again): the shelf, everything closed, the first tab at its first pick. */
   function reset() {
     hideSaver();
+    hideAmbient();
     closeSheets();
     st.zone = Z.SHELF;
     st.shelf = 0;
@@ -1605,9 +1669,10 @@
   I18N.set(Prefs.language());
   checkNight();   // now, from the last forecast: not after the TV lists its apps, with the day look until then
   // LG's screensaver waits only when ours will show: not under a sheet (ours waits there), and not without photos.
-  TV.holdScreenSaver(function () { return !sheetOpen() && saverPhotos().length > 0; });
+  TV.holdScreenSaver(function () { return !sheetOpen() && (saverMode() === 'clock' || saverPhotos().length > 0); });
   fit();
   renderTop();
+  applyDim();
   tickClock();
   loadApps(function () {
     renderAll();
@@ -1617,10 +1682,15 @@
   setInterval(function () {
     checkNight();
     Data.refresh();
-    if (!saverOn && !sheetOpen() && Date.now() - idleAt > SAVER_AFTER) showSaver();
+    applyDim();   // automatic: medium from 22:00, off again at 07:00
+    if (!saverOn && !ambientOn && !sheetOpen() && Date.now() - idleAt > SAVER_AFTER) {
+      if (saverMode() === 'clock') showAmbient(); else showSaver();
+    }
     if (saverOn) tickSaverClock($('saver').querySelector('.clock'));
+    if (ambientOn) tickAmbient();
   }, 30000);
 
   // For the browser preview and tests.
-  window.FreeMyTV = {state: st, move: move, activate: activate, back: back, showSaver: showSaver, hideSaver: hideSaver, toast: toast};
+  window.FreeMyTV = {state: st, move: move, activate: activate, back: back, showSaver: showSaver, hideSaver: hideSaver, toast: toast,
+    showAmbient: showAmbient, hideAmbient: hideAmbient, applyDim: applyDim};
 })();
