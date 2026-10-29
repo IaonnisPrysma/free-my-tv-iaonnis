@@ -1,7 +1,6 @@
 package io.freemytv;
 
 import android.app.Activity;
-import android.app.ActivityManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapShader;
 import android.graphics.Canvas;
@@ -23,15 +22,15 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Recent Apps: the apps that are open, as big cards over the blurred home screen, with a live memory meter. ← → pick
- * one, OK opens it, ▲ closes it (the TV's own ADB stops the app, which frees its memory) and ▼ or Back leave.
+ * Recent Apps: the apps that are open, as big cards over the blurred home screen. ← → pick one, OK opens it, ▲ closes
+ * it (the TV's own ADB stops the app) and ▼ or Back leave.
  * HomeView draws it on a layer of its own and sends it the keys. The numbers are in the 1920 × 1080 space and come
  * from measuring the tvOS Launcher's switcher.
  */
 final class RecentApps {
     interface Host {
         void open(HomeApps.Item item);
-        /** Something moved without a key (the list arrived, memory changed): draw again. */
+        /** Something changed without a key (the list arrived, an app was closed): draw again. */
         void repaint();
     }
 
@@ -50,7 +49,7 @@ final class RecentApps {
     private final Host host;
     private final float k;
     private final List<Card> cards = new ArrayList<>();
-    private final Spring shown = new Spring(0.3f, 0.85f, 0), scroll = new Spring(0.3f, 0.82f, 0), meter = new Spring(0.5f, 0.9f, 0);
+    private final Spring shown = new Spring(0.3f, 0.85f, 0), scroll = new Spring(0.3f, 0.82f, 0);
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG), text = new Paint(Paint.ANTI_ALIAS_FLAG),
             photo = new Paint(Paint.FILTER_BITMAP_FLAG), rim = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF r = new RectF(), full = new RectF();
@@ -58,8 +57,7 @@ final class RecentApps {
     private Bitmap backdrop;
     private boolean open, loading;
     private int focus;
-    private long usedKb, totalKb;
-    private String message, meterText = "";
+    private String message;
     /** Each open() starts a load; only the newest one's list is kept. */
     private int generation;
 
@@ -103,8 +101,6 @@ final class RecentApps {
         loading = true;
         message = null;
         open = true;
-        readMemory();
-        meter.snap(total() > 0 ? (float) usedKb / totalKb : 0);
         final int gen = ++generation;
         new Thread(() -> load(gen), "recent-apps").start();
     }
@@ -124,10 +120,6 @@ final class RecentApps {
     }
 
     // MARK: - Data
-
-    private long total() {
-        return totalKb;
-    }
 
     /** How many cards there are, and what TalkBack reads for one. */
     int count() {
@@ -165,16 +157,6 @@ final class RecentApps {
         HomeApps.Item item = cards.get(focus).item;
         close();
         host.open(item);
-    }
-
-    private void readMemory() {
-        ActivityManager am = (ActivityManager) activity.getSystemService(Activity.ACTIVITY_SERVICE);
-        ActivityManager.MemoryInfo mi = new ActivityManager.MemoryInfo();
-        am.getMemoryInfo(mi);
-        totalKb = mi.totalMem / 1024;
-        usedKb = (mi.totalMem - mi.availMem) / 1024;
-        meter.target = totalKb > 0 ? Math.max(0, Math.min(1, (float) usedKb / totalKb)) : 0;
-        meterText = Ui.trf("RAM {used} used of {total}", "used", gigabytes(usedKb), "total", gigabytes(totalKb));   // not per frame
     }
 
     /** The open apps, newest first: the tasks Android keeps (with an activity, or with a process still running). */
@@ -235,7 +217,6 @@ final class RecentApps {
             cards.addAll(found);
             focus = 0;
             scroll.snap(0);
-            readMemory();
             host.repaint();
         });
     }
@@ -278,7 +259,7 @@ final class RecentApps {
                 AppLog.w("close app: " + e);
             }
             try { Thread.sleep(900); } catch (InterruptedException ignored) { }
-            activity.runOnUiThread(() -> { readMemory(); host.repaint(); });
+            activity.runOnUiThread(host::repaint);   // the card has gone by then: TalkBack reads the ones left
         }, "close-app").start();
     }
 
@@ -286,7 +267,7 @@ final class RecentApps {
 
     boolean step(float dt) {
         shown.target = open ? 1 : 0;
-        boolean moving = shown.step(dt) | meter.step(dt);
+        boolean moving = shown.step(dt);
         scroll.target = focus;
         moving |= scroll.step(dt);
         for (int i = cards.size() - 1; i >= 0; i--) {
@@ -314,7 +295,6 @@ final class RecentApps {
         fill.setColor(Ui.alpha(0xFF000000, (backdrop != null ? 0.55f : 0.85f) * a));
         c.drawRect(0, 0, w, h, fill);
         label(c, Ui.tr("Recent Apps"), 108 * k, 108 * k, Ui.alpha(0xFFFFFFFF, a), 37 * k, Paint.Align.LEFT);
-        drawMeter(c, a);
         if (cards.isEmpty()) {
             label(c, emptyText(), CENTER_X * k, CENTER_Y * k, Ui.alpha(0xFFFFFFFF, 0.6f * a), 28 * k, Paint.Align.CENTER);
             return;
@@ -331,28 +311,6 @@ final class RecentApps {
             }
         }
         if (focus < count && cards.get(focus).stoppable) label(c, Ui.tr("Press ▲ on an app to close it"), CENTER_X * k, 975 * k, Ui.alpha(0xFFFFFFFF, 0.55f * a), 22 * k, Paint.Align.CENTER);
-    }
-
-    private void drawMeter(Canvas c, float a) {
-        float left = 1197 * k, top = 51 * k, right = 1794 * k, bottom = 129 * k;
-        r.set(left, top, right, bottom);
-        fill.setColor(Ui.alpha(0xFF3A3A3C, 0.6f * a));
-        c.drawRoundRect(r, 39 * k, 39 * k, fill);
-        rim.setColor(Ui.alpha(0xFFFFFFFF, 0.28f * a));
-        r.inset(k, k);
-        c.drawRoundRect(r, 38 * k, 38 * k, rim);
-        label(c, meterText, left + 38 * k, 99 * k, Ui.alpha(0xFFFFFFFF, a), 25 * k, Paint.Align.LEFT);
-        float barW = 178 * k, barX = right - 38 * k - barW, barY = (top + bottom) / 2;
-        r.set(barX, barY - 5 * k, barX + barW, barY + 5 * k);
-        fill.setColor(Ui.alpha(0xFFFFFFFF, 0.28f * a));
-        c.drawRoundRect(r, 5 * k, 5 * k, fill);
-        r.set(barX, barY - 5 * k, barX + barW * Ui.clamp(meter.value), barY + 5 * k);
-        fill.setColor(Ui.alpha(0xFFFFFFFF, a));
-        c.drawRoundRect(r, 5 * k, 5 * k, fill);
-    }
-
-    private static String gigabytes(long kb) {
-        return String.format(Ui.locale(), "%.1f GB", kb / 1048576f);
     }
 
     /** Where card `i` is on screen now (TalkBack). */
