@@ -263,7 +263,8 @@ final class HomeMode {
 
     /**
      * The remote's app buttons (RemoteKeys) need an accessibility service that only filters those keys. It is on only
-     * on TCL, Vestel, KTC, Sony, Xiaomi and Hisense TVs (and Formovie projectors) in Free My TV mode, and goes off with Original. Android turns it off when this app is updated, so the
+     * on supported TVs, Formovie projectors and Google TV Streamer in Free My TV mode, and goes off with Original.
+     * Android turns it off when this app is updated, so the
      * boot check and an update turn it back on. A change in Remote Buttons asks again: with every button on Nothing,
      * and on TCL's Android 11, it goes off (RemoteKeys.serviceWanted).
      */

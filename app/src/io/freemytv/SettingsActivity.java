@@ -1229,6 +1229,8 @@ public class SettingsActivity extends Activity {
         }
 
         private String[] keyLabels() {
+            if (RemoteKeys.GOOGLE_STREAMER) return new String[] {Ui.tr("YouTube button"), Ui.tr("Netflix button"),
+                    Ui.tr("Custom button") + " \u2605"};
             if (RemoteKeys.HISENSE) return new String[] {Ui.tr("Prime Video button"), Ui.tr("YouTube button"),
                     Ui.tr("Disney+ button"), Ui.tr("All Apps button"), Ui.tr("Settings button"), Ui.tr("Profile button")};
             if (RemoteKeys.STEM_NETFLIX) return new String[] {Ui.tr("Netflix button")};
@@ -1264,14 +1266,15 @@ public class SettingsActivity extends Activity {
             appPkgs.clear();
             appLabels.clear();
             appPkgs.add("");
-            // On Sony and Xiaomi, "nothing" leaves the key to the TV, which opens its usual app.
-            appLabels.add(RemoteKeys.SONY ? Ui.tr("Sony default") : RemoteKeys.XIAOMI ? Ui.tr("Xiaomi default") : Ui.tr("Nothing"));
+            // An empty choice leaves the key to the system's receiver.
+            appLabels.add(RemoteKeys.GOOGLE_STREAMER ? Ui.tr("Google default")
+                    : RemoteKeys.SONY ? Ui.tr("Sony default") : RemoteKeys.XIAOMI ? Ui.tr("Xiaomi default") : Ui.tr("Nothing"));
             // On Xiaomi the Mi button is the remote's Home button: it can open this home screen.
             if (RemoteKeys.XIAOMI) {
                 appPkgs.add(HomeMode.PKG);
                 appLabels.add("Free My TV");
             }
-            if (RemoteKeys.HISENSE) {
+            if (RemoteKeys.HISENSE || RemoteKeys.GOOGLE_STREAMER) {
                 appPkgs.add(Prefs.ALL_APPS);
                 appLabels.add(Ui.tr("All Apps"));
             }
@@ -2198,6 +2201,7 @@ public class SettingsActivity extends Activity {
                         : RemoteKeys.FORMOVIE ? Ui.tr("The other buttons: the TV itself controls them.")
                         : RemoteKeys.XIAOMI ? Ui.tr("Xiaomi default: the button opens what it always did.")
                         : RemoteKeys.HISENSE ? Ui.tr("Netflix: the TV itself controls that button.")
+                        : RemoteKeys.GOOGLE_STREAMER ? Ui.tr("The other buttons: the TV itself controls them.")
                         : RemoteKeys.supported() ? Ui.tr("Disney and Globoplay: the TV itself controls those buttons.")
                         : Ui.tr("TCL remote buttons: on this TV they work as always."), LIST_X * k + 30 * k, hy + 38 * k, hint);
                 // No key service on this TV (RemoteKeys.FILTER_SAFE): inside other apps the buttons do nothing.
