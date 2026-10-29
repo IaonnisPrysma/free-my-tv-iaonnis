@@ -1511,19 +1511,20 @@
     setClass($('saver'), 'on', false);
   }
 
-  // MARK: - The clock screensaver: a clock, the weather, and a few pixels of shift every half minute
+  // MARK: - The clock screensaver: a clock, the date and the weather, drifting slowly for OLED panels
 
   var ambientOn = false, ambientTimer = 0;
 
   function showAmbient() {
-    var a = $('ambient'), w = Data.weather;
+    if (ambientOn) return;
+    var a = $('ambient');
     a.innerHTML = '';
     var shift = el('div', 'shift', a);
-    el('div', 'clock', shift, formatDate('format|h:mm', Date.now()));
-    el('div', 'date', shift, formatDate('format|EEEE, MMMM d', Date.now()));
+    el('div', 'clock', shift);
+    el('div', 'date', shift);
     var side = el('div', 'side', shift);
-    el('div', 'temp', side, w ? Data.degrees(w.temp) : '—');
-    if (w) el('div', 'cond', side, Data.condition(w.code, w.isDay));
+    el('div', 'temp', side);
+    el('div', 'cond', side);
     ambientOn = true;
     setClass(a, 'on', true);
     ambientTimer = setInterval(tickAmbient, 30000);
@@ -1532,13 +1533,16 @@
 
   function tickAmbient() {
     if (!ambientOn) return;
-    var a = $('ambient'), shift = a.querySelector('.shift'), d = new Date();
-    var clock = a.querySelector('.clock'), date = a.querySelector('.date');
-    if (clock) clock.textContent = formatDate('format|h:mm', d.getTime());
-    if (date) date.textContent = formatDate('format|EEEE, MMMM d', d.getTime());
-    // A clock that never moves is what burns into an OLED: a few pixels every half minute.
-    if (shift) shift.style.webkitTransform = shift.style.transform =
-      'translate(' + Math.round(Math.sin(d.getMinutes() * 0.7) * 6) + 'px,' + Math.round(Math.cos(d.getMinutes() * 0.9) * 5) + 'px)';
+    var a = $('ambient'), d = new Date(), w = Prefs.weather() ? Data.weather : null;
+    a.querySelector('.clock').textContent = formatDate('format|h:mm', d.getTime());
+    a.querySelector('.date').textContent = formatDate('format|EEEE, MMMM d', d.getTime());
+    // The forecast as it is now (a new one comes every 30 minutes), and only with the weather card on, as on Android.
+    a.querySelector('.temp').textContent = w ? Data.degrees(w.temp) : '';
+    a.querySelector('.cond').textContent = w ? Data.condition(w.code, w.isDay) : '';
+    // A clock that never moves burns into an OLED: the drift of Android's clock without photos (40 × 26 px, 10 minutes).
+    var phase = 2 * Math.PI * (d.getTime() / 1000 % 600) / 600, shift = a.querySelector('.shift');
+    shift.style.webkitTransform = shift.style.transform =
+      'translate(' + Math.round(40 * Math.sin(phase)) + 'px,' + Math.round(26 * Math.sin(2 * phase + 0.7)) + 'px)';
   }
 
   function hideAmbient() {
@@ -1661,7 +1665,7 @@
   document.addEventListener('webOSRelaunch', reopened);   // LG: opened again while running
   window.addEventListener('appcontrol', reopened);        // Samsung: the same
   document.addEventListener('visibilitychange', function () {
-    if (document.hidden) { hideSaver(); return; }
+    if (document.hidden) { hideSaver(); hideAmbient(); return; }
     idleAt = Date.now();
     loadApps(function () { renderShelf(); renderDrawer(); updateFocus(); Data.refresh(); });
   });
