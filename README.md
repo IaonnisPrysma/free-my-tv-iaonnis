@@ -32,6 +32,13 @@ Open source. Built with Claude Code. One button to undo.
 - **Set up on the TV.** Language, your city, temperature, theme, how many picks and which streaming services they come from, the weather and prices cards, the forecast's hours or days, which coins, and the apps on the shelf, in Free My TV's own settings.
 - **Safe.** No root. Nothing is uninstalled. One button brings back the factory home screen.
 
+On **Google TV Streamer 4K**, *Free My TV* → *Remote Buttons* can remap YouTube, Netflix and the custom ★ button to an
+installed app or Free My TV's *All Apps*. YouTube opens YouTube initially; Netflix and ★ stay on *Google default*
+until you choose something. *Google default* passes the button to Google's receiver: YouTube and ★ depend on the
+original Google TV home screen, so they may do nothing while it is off. Home, Back, voice, power and volume are not
+remapped. The service runs only in Free My TV mode, and *Original* turns it off; choosing *Google default* for all
+three buttons turns it off too. The remote's built-in long-press customization is not a separate mapping here.
+
 ## Install
 
 About ten minutes. You need a Google TV or Android TV (Android 8 or newer) and a computer on the same Wi-Fi.
