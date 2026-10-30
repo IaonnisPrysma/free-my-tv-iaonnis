@@ -2,6 +2,7 @@ package io.freemytv;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.view.KeyEvent;
 
 import java.io.BufferedReader;
@@ -42,6 +43,21 @@ final class Prefs {
     static final int KEY_SONY_CORE = SONY_KEY + 496, KEY_SONY_NETFLIX = SONY_KEY + 583, KEY_SONY_DISNEY = SONY_KEY + 491,
             KEY_SONY_PRIME = SONY_KEY + 490, KEY_SONY_YOUTUBE = SONY_KEY + 485, KEY_SONY_CRUNCHYROLL = SONY_KEY + 507,
             KEY_SONY_PLAY = SONY_KEY + 587;   // the Google Play button of older remotes: BUTTON_8 (BRAVIA 4K UR3, Android 10)
+    /** The SonyLIV button of the BRAVIA VU31's remote (India, Google TV 14), a key code of its own (#395). */
+    static final int KEY_SONY_LIV = 3004;
+
+    /**
+     * A Sony app button by scan code. The BRAVIA VU31's remote (Google TV 14, #395) sends other codes for the same
+     * buttons: BUTTON_4 with 758 for Netflix, BUTTON_2 with 652 for Prime Video, BUTTON_15 with 653 for YouTube.
+     */
+    static int sonyKey(int scanCode) {
+        switch (scanCode) {
+            case 758: return KEY_SONY_NETFLIX;
+            case 652: return KEY_SONY_PRIME;
+            case 653: return KEY_SONY_YOUTUBE;
+            default: return SONY_KEY + scanCode;
+        }
+    }
     /**
      * Xiaomi's app buttons (remotes sold in Russia), handed to its hot-key receiver (its log: "dealWithHotkey
      * keycode:199"). None has a default here: "Xiaomi default" (empty) leaves the key to the TV.
@@ -76,7 +92,7 @@ final class Prefs {
                     KEY_HISENSE_APPS, KEY_HISENSE_SETTINGS, KEY_HISENSE_PROFILE}
             : RemoteKeys.SONY
             ? new int[] {KEY_SONY_CORE, KEY_SONY_NETFLIX, KEY_SONY_DISNEY, KEY_SONY_PRIME, KEY_SONY_YOUTUBE, KEY_SONY_CRUNCHYROLL,
-                    KEY_SONY_PLAY}
+                    KEY_SONY_PLAY, KEY_SONY_LIV}
             : RemoteKeys.STEM_NETFLIX ? new int[] {KEY_STEM_NETFLIX}
             : RemoteKeys.KTC ? new int[] {KEY_KTC_TABII}
             : RemoteKeys.XIAOMI_PATCHWALL_ONLY ? new int[] {KEY_XIAOMI_PATCHWALL}
@@ -403,6 +419,18 @@ final class Prefs {
             if (keyCode == KEY_JVC_SHORTCUT) return TV_SHORTCUTS;
             return keyCode == KEY_JVC_SETTINGS ? QUICK_SETTINGS : "";
         }
+        if (RemoteKeys.SONY) {
+            if (!sonyGoogleTv()) return "";   // "Sony default": Sony's own receiver opens it
+            switch (keyCode) {
+                case KEY_SONY_NETFLIX: return "com.netflix.ninja";
+                case KEY_SONY_DISNEY: return "com.disney.disneyplus";
+                case KEY_SONY_PRIME: return "com.amazon.amazonvideo.livingroom";
+                case KEY_SONY_YOUTUBE: return "com.google.android.youtube.tv";
+                case KEY_SONY_CRUNCHYROLL: return "com.crunchyroll.crunchyroid";
+                case KEY_SONY_LIV: return "com.sonyliv";
+                default: return "";
+            }
+        }
         if (RemoteKeys.HISENSE) {
             switch (keyCode) {
                 case KEY_HISENSE_PRIME: return "com.amazon.amazonvideo.livingroom";
@@ -429,6 +457,28 @@ final class Prefs {
     // The service asks on every key: the values stay in memory and the file is read again only when it changes.
     private static File keysFile() {
         return new File(app.getFilesDir(), "remote-keys.txt");
+    }
+
+    private static Boolean sonyGoogleTv;
+
+    /**
+     * A Sony with Google TV's home app (launcherx), which takes the app buttons from Sony's receiver and which Free My
+     * TV mode turns off: there "Sony default" does nothing (BRAVIA VU31, #395), so the buttons open their apps unless
+     * the person picks otherwise. Sony's Android TV sets (VH22) keep Sony's default.
+     */
+    private static boolean sonyGoogleTv() {
+        if (sonyGoogleTv == null) {
+            boolean has;
+            try {
+                app.getPackageManager().getApplicationInfo("com.google.android.apps.tv.launcherx",
+                        PackageManager.MATCH_DISABLED_COMPONENTS);
+                has = true;
+            } catch (PackageManager.NameNotFoundException e) {
+                has = false;
+            }
+            sonyGoogleTv = has;
+        }
+        return sonyGoogleTv;
     }
 
     private static final String[] keyApps = new String[KEYS.length];   // null = the default

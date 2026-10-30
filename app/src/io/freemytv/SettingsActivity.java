@@ -1305,7 +1305,7 @@ public class SettingsActivity extends Activity {
             if (RemoteKeys.SONY) return new String[] {Ui.tr("BRAVIA CORE button"),
                     Ui.tr("Netflix button"), Ui.tr("Disney+ button"),
                     Ui.tr("Prime Video button"), Ui.tr("YouTube button"),
-                    Ui.tr("Crunchyroll button"), Ui.tr("Google Play button")};
+                    Ui.tr("Crunchyroll button"), Ui.tr("Google Play button"), Ui.tr("SonyLIV button")};
             return new String[] {Ui.tr("Netflix button"), Ui.tr("YouTube button"),
                     Ui.tr("Prime Video button"), Ui.tr("TCL Channel button"), Ui.tr("Settings button")};
         }

@@ -366,7 +366,12 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   YouTube and Crunchyroll buttons, `KEYCODE_BUTTON_4` for Netflix and `KEYCODE_BUTTON_8` for the Google Play button of
   older remotes (BRAVIA 4K UR3, Android 10 tested), global keys for `com.sony.dtv.sonyvendorservice`;
   only the scan code tells them apart, so `Prefs` keys them as `SONY_KEY` + scan code. "Sony default" (empty) leaves
-  the key to the TV. Sony ships its own Apple TV build, `com.apple.atve.sony.appletv`.
+  the key to the TV. The BRAVIA VU31's remote (Realtek, Google TV 14, #395) sends `BUTTON_4` with scan code 758 for
+  Netflix, `BUTTON_2` (652) for Prime Video, `BUTTON_15` (653) for YouTube and key code 3004 for SonyLIV; `Prefs.sonyKey`
+  puts the first three on the same rows. There the TV hands the buttons to launcherx, so with it off "Sony default" does
+  nothing: on a Sony with launcherx installed (`Prefs.sonyGoogleTv`) the buttons default to their apps. Another remote's
+  codes go in `sonyKey` the same way, as long as they don't clash with a known one. Sony ships its own Apple TV build,
+  `com.apple.atve.sony.appletv`.
   Xiaomi projectors made by Formovie (Fengmi; L1, MediaTek, Google TV 14 tested) send the same `KEYCODE_STEM_1` for
   Netflix (`RemoteKeys.STEM_NETFLIX`); their YouTube button goes to MediaTek's `GlobalKeyReceiver` and stays with the system.
   Some Xiaomi TVs (MiTV-MSSP3, MediaTek, Android TV 9 tested) have no Home button on the remote (`RemoteKeys.XIAOMI`
