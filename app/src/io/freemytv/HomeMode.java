@@ -1133,13 +1133,20 @@ final class HomeMode {
     // MARK: - Measurements (without opening apps: memory and the home button)
 
     /** A failed measurement only logs: the switch itself went through (or is about to), and a TV may cut it short
-     *  (a TCL's TGuard kills the job once the original launcher is in front, and the error read as a failed switch, #277). */
+     *  (a TCL's TGuard kills the job once the original launcher is in front, and the error read as a failed switch, #277).
+     *  The memory after the timing (the home screen just in front, as Free My TV's is when it's measured), but on its
+     *  own: a timing that fails no longer leaves both memory rows empty. */
     private static void measure(Context c, Adb adb, String mode, boolean memory) {
         try {
             measureHomeTime(c, adb, mode);
-            if (memory) measureMemory(c, adb, mode);
         } catch (Exception e) {
             AppLog.w("measurement of " + mode + " failed: " + e.getMessage());
+        }
+        if (!memory) return;
+        try {
+            measureMemory(c, adb, mode);
+        } catch (Exception e) {
+            AppLog.w("memory measurement of " + mode + " failed: " + e.getMessage());
         }
     }
 
@@ -1159,11 +1166,24 @@ final class HomeMode {
         putMetric(c, mode, "homeMs", samples.get(samples.size() / 2));
     }
 
-    /** Two minutes after a switch (the home screen settled, caches trimmed). */
+    /**
+     * Two minutes after a switch (the home screen settled, caches trimmed), and again when the settings close without
+     * it. Only with that home screen in front: behind another app it's trimmed, and with the settings in front their
+     * memory would count as our home screen's. Not in front within ten minutes of the switch: again in a minute.
+     */
     static void measureMemoryNow(Context c, String mode) {
         synchronized (RUN) {
-            if (!mode.equals(state(c).optString("mode"))) return;
+            JSONObject s = state(c);
+            if (!mode.equals(s.optString("mode"))) return;
             try (Adb adb = Adb.connect(c, 10_000, null)) {
+                String homePkg = packageOf(originalHome(s));   // dumpsys names an activity as "package/.Class"
+                String front = FREE.equals(mode) ? PKG + "/.HomeActivity" : homePkg == null ? null : homePkg + "/";
+                if (front != null && !adb.shell("dumpsys activity activities | grep ResumedActivity").contains(front)) {
+                    boolean again = System.currentTimeMillis() - s.optLong("since") < 600_000;
+                    AppLog.w("memory of " + mode + " not measured: its home screen isn't in front" + (again ? ", again in a minute" : ""));
+                    if (again) ModeJob.schedule(c, ModeJob.MEMORY, mode, 60_000);
+                    return;
+                }
                 measureMemory(c, adb, mode);
             } catch (Exception e) {
                 AppLog.w("memory measurement failed: " + e.getMessage());
@@ -1178,7 +1198,8 @@ final class HomeMode {
         String home = packageOf(originalHome(state(c)));
         String[] processes = FREE.equals(mode) ? new String[] {PKG + ":home"}
                 : home == null ? new String[0] : new String[] {home, home + ":coreservices"};
-        Pattern total = Pattern.compile("TOTAL PSS:\\s+(\\d+)");
+        // "TOTAL PSS:" from Android 10, plain "TOTAL:" before (never "TOTAL SWAP PSS:" nor the table's "TOTAL" row).
+        Pattern total = Pattern.compile("TOTAL(?: PSS)?:\\s+(\\d+)");
         for (String p : processes) {
             Matcher m = total.matcher(adb.shell("dumpsys meminfo " + p));
             if (m.find()) pss += Long.parseLong(m.group(1));

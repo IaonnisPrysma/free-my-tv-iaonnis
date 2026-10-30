@@ -418,6 +418,10 @@ public class SettingsActivity extends Activity {
 
         void pause() {
             commitWatch();
+            if (running && !busy() && memoryMissing()) {   // measured once the home screen is back in front
+                AppLog.w("memory of " + state.optString("mode") + " missing: measuring again");
+                ModeJob.schedule(getContext(), ModeJob.MEMORY, state.optString("mode"), 5_000);
+            }
             running = false;
             handler.removeCallbacks(poll);
             handler.removeCallbacks(askWatch);
@@ -490,6 +494,25 @@ public class SettingsActivity extends Activity {
 
         private boolean freeActive() {
             return HomeMode.FREE.equals(state.optString("mode")) && !state.optBoolean("homeReverted");
+        }
+
+        /** Memory is measured two minutes after a switch: until then its cells say it's coming. */
+        private boolean memorySoon() {
+            return System.currentTimeMillis() - state.optLong("since") < 180_000;
+        }
+
+        /**
+         * The mode in use was measured at its switch, but its memory wasn't, well after it should have been (the job
+         * didn't run, ADB was away, or its home screen wasn't in front then). Only after a switch: before one, asking
+         * would bring up the TV's ADB prompt.
+         */
+        private boolean memoryMissing() {
+            String mode = state.optString("mode");
+            JSONObject metrics = state.optJSONObject("metrics");
+            JSONObject m = metrics == null ? null : metrics.optJSONObject(mode);
+            if (m == null || !state.has("since") || memorySoon()) return false;
+            if (HomeMode.FREE.equals(mode) ? !freeActive() : state.optString("originalHome").isEmpty()) return false;
+            return !m.has("memAvailableMB") || !m.has("homePssMB");
         }
 
         /**
@@ -668,20 +691,29 @@ public class SettingsActivity extends Activity {
         private float drawComparison(Canvas c, float y) {
             float x = LIST_X * k + 30 * k, colA = LIST_R * k - 220 * k, colB = LIST_R * k - 30 * k;
             c.drawText(Ui.tr("COMPARISON"), x, y, header);
+            JSONObject metrics = state.optJSONObject("metrics");
+            JSONObject a = metrics == null ? null : metrics.optJSONObject(HomeMode.ORIGINAL);
+            JSONObject b = metrics == null ? null : metrics.optJSONObject(HomeMode.FREE);
+            if (a == null && b == null) {   // before the first switch: what the table will hold, not six dashes
+                String line = Ui.tr("Measured at each switch, for both home screens.");
+                c.drawText(TextUtils.ellipsize(line, notice, 790 * k, TextUtils.TruncateAt.END).toString(), x, y + 42 * k, notice);
+                return y + 82 * k;
+            }
             cellValue.setColor(0x73FFFFFF);
             c.drawText(Ui.tr("Original"), colA, y, cellValue);
             c.drawText("Free My TV", colB, y, cellValue);
             cellValue.setColor(0xD9FFFFFF);
-            JSONObject metrics = state.optJSONObject("metrics");
-            JSONObject a = metrics == null ? null : metrics.optJSONObject(HomeMode.ORIGINAL);
-            JSONObject b = metrics == null ? null : metrics.optJSONObject(HomeMode.FREE);
+            // The mode just switched to: its memory comes two minutes later, so its cells wait with "…", not "—".
+            boolean soon = !busy() && memorySoon();
+            JSONObject current = HomeMode.FREE.equals(state.optString("mode")) ? b : a;
             String[][] rows = {{Ui.tr("Home button"), "homeMs"}, {Ui.tr("Free memory"), "memAvailableMB"},
                     {Ui.tr("Home screen memory"), "homePssMB"}};
             for (int i = 0; i < rows.length; i++) {
                 float base = y + (46 + 40 * i) * k;
                 c.drawText(rows[i][0], x, base, cellLabel);
-                c.drawText(metric(a, rows[i][1]), colA, base, cellValue);
-                c.drawText(metric(b, rows[i][1]), colB, base, cellValue);
+                boolean waits = soon && i > 0;
+                c.drawText(metric(a, rows[i][1], waits && current == a), colA, base, cellValue);
+                c.drawText(metric(b, rows[i][1], waits && current == b), colB, base, cellValue);
             }
             return y + (46 + 40 * rows.length) * k;
         }
@@ -733,8 +765,8 @@ public class SettingsActivity extends Activity {
                     | (Math.round(ag + (bg - ag) * f) << 8) | Math.round(ab + (bb - ab) * f);
         }
 
-        private static String metric(JSONObject m, String key) {
-            if (m == null || !m.has(key)) return "—";
+        private static String metric(JSONObject m, String key, boolean soon) {
+            if (m == null || !m.has(key)) return soon ? "…" : "—";
             long v = m.optLong(key);
             if (key.equals("homeMs")) return Ui.trf("{n} ms", "n", v);
             if (key.equals("memAvailableMB") && v >= 1024) return Ui.trf("{n} GB", "n", String.format(Ui.locale(), "%.2f", v / 1024.0));
