@@ -21,8 +21,11 @@ before you do it, and let them do the taps on the TV.
 - Google TV's setup app (`setupwraith`) goes off before the stock home screen and comes back after it, everywhere
   (`targets` order, `applyOriginal`, `revertHomeNow`, `verifyNow`): with the home screen off and it on, its
   RecoveryActivity takes Home, and a restart there factory-reset a Xiaomi. If it can't go off, the home screen stays on.
-  The Kalley 43G200 (`R3_GTV`) turns it back on at every start and boot-looped without its home screen: the switch
-  refuses there. On Amazon Fire TV (Fire OS: `HomeMode.AMAZON`), Amazon's launcher keeps the Home button (`priority=950`
+  The Kalley 43G200 (`R3_GTV`) turns it back on at every start and boot-looped without its home screen, and a Huawei
+  TV (HarmonyOS) stopped at its logo at the first restart after the switch (back only with a factory reset): the
+  switch refuses on both (`HomeMode.BRICKS`, Huawei by brand or by `com.huawei.system.BuildEx.getOsBrand()`), and
+  the boot check or an update takes one already in Free My TV mode back to *Original*. On a phone (`HomeMode.phone`:
+  telephony, no leanback, not in TV mode) the settings say the APK goes on the TV, and the switch refuses. On Amazon Fire TV (Fire OS: `HomeMode.AMAZON`), Amazon's launcher keeps the Home button (`priority=950`
   on `CATEGORY_HOME`), so the switch refuses Free My TV mode while *Original* and the watchdog still run, and no
   `com.amazon.*` package is ever turned off (`mayTurnOff`).
 - Never turn off an app that saved a Wi-Fi network: Android deletes its networks and Original can't bring them

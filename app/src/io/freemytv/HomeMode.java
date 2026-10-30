@@ -1,6 +1,9 @@
 package io.freemytv;
 
+import android.app.UiModeManager;
 import android.content.Context;
+import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.os.Build;
 import android.os.SystemClock;
 
@@ -48,6 +51,43 @@ final class HomeMode {
      * refuses Free My TV mode while Original and the watchdog still run.
      */
     static final boolean AMAZON = "Amazon".equalsIgnoreCase(Build.MANUFACTURER) || "Amazon".equalsIgnoreCase(Build.BRAND);
+
+    /**
+     * Where switching the home screen kept a TV from starting again, so the switch refuses Free My TV mode and a TV
+     * already in it goes back to Original. Kalley 43G200 turns Google TV's setup app back on at every start: without its
+     * home screen the next start looped at the logo, and that TV only came back with a USB reflash (CleanYourTV,
+     * examples/kalley-43g200). A Huawei TV (HarmonyOS) stopped at its logo at the first restart after the switch, and
+     * only a factory reset brought it back (10-29).
+     */
+    static final boolean BRICKS = "R3_GTV".equals(Build.DEVICE) || huawei();
+
+    /** Huawei's TVs and boxes, and anything on HarmonyOS (Huawei's BuildEx says so). */
+    private static boolean huawei() {
+        if ("HUAWEI".equalsIgnoreCase(Build.MANUFACTURER) || "HUAWEI".equalsIgnoreCase(Build.BRAND)) return true;
+        try {
+            Object brand = Class.forName("com.huawei.system.BuildEx").getMethod("getOsBrand").invoke(null);
+            return "harmony".equalsIgnoreCase(String.valueOf(brand));
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {   // not there: not HarmonyOS
+            return false;
+        }
+    }
+
+    /**
+     * A phone, not a TV (telephony, and neither Android TV's features nor the TV mode): the APK was installed in the
+     * wrong place. The settings say so, and the switch refuses: a TV home screen on a phone answers no touch.
+     */
+    static boolean phone(Context c) {
+        PackageManager pm = c.getPackageManager();
+        if (pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) || pm.hasSystemFeature(PackageManager.FEATURE_TELEVISION)) return false;
+        UiModeManager mode = c.getSystemService(UiModeManager.class);
+        if (mode != null && mode.getCurrentModeType() == Configuration.UI_MODE_TYPE_TELEVISION) return false;
+        return pm.hasSystemFeature(PackageManager.FEATURE_TELEPHONY);
+    }
+
+    /** What the settings and the refused switch say on a phone. */
+    static String phoneText() {
+        return Ui.tr("Free My TV is a TV app: install this APK on your Android TV or Google TV (freemytv.io), not on a phone.");
+    }
 
     /** Classic Android TV's home screen; its recommendations service crashes on the screensaver while it's off (#11). */
     static final String TV_LAUNCHER = "com.google.android.tvlauncher";
@@ -385,10 +425,12 @@ final class HomeMode {
             done(c, Ui.tr("On Fire TV the Home button belongs to Amazon's home screen. Free My TV stays an app here: open it from your apps."));
             return;
         }
-        // Kalley 43G200 turns Google TV's setup app back on at every start: without its home screen the next start
-        // looped at the logo, and that TV only came back with a USB reflash (CleanYourTV, examples/kalley-43g200).
-        if ("R3_GTV".equals(Build.DEVICE)) {
-            done(c, Ui.tr("On this TV model, switching the home screen kept a TV from starting. Free My TV stays an app here: open it from your apps."));
+        if (BRICKS) {
+            done(c, bricksText());
+            return;
+        }
+        if (phone(c)) {
+            done(c, phoneText());
             return;
         }
         try (Adb adb = connect(c, s)) {
@@ -512,6 +554,10 @@ final class HomeMode {
         } catch (Exception e) {
             done(c, Ui.trf("Couldn't turn on Free My TV: {error}", "error", e.getMessage()));
         }
+    }
+
+    static String bricksText() {
+        return Ui.tr("On this TV model, switching the home screen kept a TV from starting. Free My TV stays an app here: open it from your apps.");
     }
 
     private static void applyOriginal(Context c) {
@@ -702,6 +748,13 @@ final class HomeMode {
                 save(app, s);
             } catch (JSONException ignored) {}
             if (!FREE.equals(s.optString("mode")) || AMAZON) return;
+            if (BRICKS) {
+                // Switched by a version that still allowed it here: the TV's own home screen back before the next restart.
+                AppLog.w("Free My TV mode where the switch kept a TV from starting: back to Original");
+                applyOriginal(app);
+                notice(app, bricksText());
+                return;
+            }
             List<String> fixed = new ArrayList<>();
             try (Adb adb = Adb.connect(app, 10_000, null)) {
                 try {   // as the widget says: a TV update can take it back, and a take-back can have failed

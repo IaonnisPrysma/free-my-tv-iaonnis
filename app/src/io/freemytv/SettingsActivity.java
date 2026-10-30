@@ -220,6 +220,7 @@ public class SettingsActivity extends Activity {
         private float skySeconds;
         private long requestedAt;   // the switch asked for: its stamp, to tell whether its job ever started
         private boolean stalled;    // it didn't: a TV maker's background blocker (stalledText says what to do)
+        private final boolean phone;   // installed on a phone: the settings say where it goes (HomeMode.phone)
         private int w, h;
         private float k = 1;
         private Paint title, subtitle, version, rowLabel, rowValue, rowSub, header, cellLabel, cellValue, warn, spinner, white, shadow;
@@ -282,6 +283,7 @@ public class SettingsActivity extends Activity {
             HomeData.Weather wx = HomeData.get(a).weather;
             Shaders.sky(scene.palette, System.currentTimeMillis(), wx.sunrise, wx.sunset);
             scene.setMotion(0.5f, 0.2f);
+            phone = HomeMode.phone(a);
             scene.applyPalette();
             setFocusable(true);
             setContentDescription("Free My TV");
@@ -596,7 +598,7 @@ public class SettingsActivity extends Activity {
             }
 
             float y = (MAIN_TOP + labels.length * (ROW_H + MAIN_GAP) + 20) * k;
-            String error = stalled ? stalledText() : state.optString("error");
+            String error = phone ? HomeMode.phoneText() : stalled ? stalledText() : state.optString("error");
             if (working && busyText.equals(Ui.tr("Accept “Allow USB debugging?” on the TV (tick “Always allow”)."))) {
                 c.drawText(Ui.tr("On the TV: tick “Always allow” and press OK."),
                         LIST_X * k + 30 * k, y, warn);
@@ -1095,7 +1097,8 @@ public class SettingsActivity extends Activity {
         private String need(int i) {
             switch (screen) {
                 case MAIN:
-                    return i == 5 ? Capabilities.NEED_REMOTE_BUTTONS : i == 6 ? Capabilities.NEED_ADB : null;
+                    return i == 0 ? Capabilities.NEED_SWITCH : i == 5 ? Capabilities.NEED_REMOTE_BUTTONS
+                            : i == 6 ? Capabilities.NEED_ADB : null;
                 case HOME_SETTINGS:
                     return pickScroll + i == PLAYING_ROW ? Capabilities.NEED_LISTENER : null;
                 case POWER: {
