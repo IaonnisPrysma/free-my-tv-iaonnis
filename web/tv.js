@@ -301,11 +301,26 @@ var TV = (function () {
    * the TV's own DIAL server, which phones cast through, does.
    */
   var samsungDial = {}, NATIVE = /^\d+(\.|$)/;
+  /**
+   * Netflix on 2017 and 2018 Samsungs (Tizen 3 and 4): launch answers success and Netflix stays black, Back and all
+   * (MU6100, MU6122, NU7400, #257). Smart Hub's own number for it, through the TV's REST API, opens it normally, as
+   * phones do; the TV may ask once whether to allow it, so that call waits for the person.
+   */
+  var NETFLIX_HUB = '11101200001';
 
   function dialLaunch(name, done) {
+    post('/ws/apps/' + name, 8000, done);
+  }
+
+  function hubLaunch(hubId, done) {
+    post('/api/v2/applications/' + hubId, 30000, done);
+  }
+
+  /** A POST to the TV's own server on port 8001 (DIAL and its REST API); done(ok). */
+  function post(path, timeout, done) {
     var x = new XMLHttpRequest(), over = false;
-    x.open('POST', 'http://127.0.0.1:8001/ws/apps/' + name, true);
-    x.timeout = 8000;
+    x.open('POST', 'http://127.0.0.1:8001' + path, true);
+    x.timeout = timeout;
     x.onreadystatechange = function () {
       if (x.readyState !== 4 || over) return;
       over = true;
@@ -326,6 +341,10 @@ var TV = (function () {
       }
     }
     function failed() { if (done) done(false); }
+    if (tizen34 && dial === 'Netflix') {
+      hubLaunch(NETFLIX_HUB, function (ok) { if (ok) { if (done) done(true); } else launch(function () { dialLaunch(dial, done); }); });
+      return;
+    }
     // A native id: DIAL first (launch doesn't open those on Tizen 2.3), and launch where DIAL doesn't answer.
     if (dial && NATIVE.test(id)) {
       dialLaunch(dial, function (ok) { if (ok) { if (done) done(true); } else launch(failed); });

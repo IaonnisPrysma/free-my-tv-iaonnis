@@ -534,7 +534,9 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   forecast go in the clear). On Tizen 2.3 (2015) Netflix, YouTube and Amazon are native apps whose ids start with a
   number (`11101200001.Netflix`, `111299001912.YouTube`, `111299001578.Amazon_Video`, listed as "Amazon Video"):
   `tizen.application.launch` doesn't open them, the TV's DIAL server does (`POST http://127.0.0.1:8001/ws/apps/<name>`,
-  `dialLaunch`). `web/tv.js` is the
+  `dialLaunch`). On Tizen 3 and 4 (2017 and 2018) `launch` answers success for Netflix and it stays black (#257); Smart
+  Hub's number for it through the same server's REST API opens it, as phones do (`POST
+  /api/v2/applications/11101200001`, `hubLaunch`; the TV may ask once whether to allow it). `web/tv.js` is the
   TV's side: on LG, Luna (`listLaunchPoints`, `launch`, the inputs; where webOS 6 and newer deny `listLaunchPoints`
   to Developer Mode apps, the list comes from the TV's remote control API on `ws://127.0.0.1:3000` once the TV has
   allowed it (it asks once; a "no" isn't asked again; firmware that gives the page its own origin,
