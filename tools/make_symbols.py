@@ -21,6 +21,8 @@ MAP = {
     "wifi": ("wifi", 1), "ethernet": ("lan", 1), "bluetooth": ("bluetooth_connected", 1), "usb": ("usb", 1),
     "keystone": ("settings_overscan", 1), "cast": ("cast", 1),
     "accessibility": ("accessibility_new", 0),
+    "lightbulb": ("lightbulb", 1), "toggle": ("toggle_on", 1), "fan": ("mode_fan", 1), "blinds": ("blinds", 1),
+    "bolt": ("bolt", 1), "smart_button": ("smart_button", 1),
 }
 
 
