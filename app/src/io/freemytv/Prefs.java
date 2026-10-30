@@ -217,11 +217,28 @@ final class Prefs {
         return offList;
     }
 
+    /** A service found by its app's name is keyed by its package, and is off until switched on. */
+    private static boolean byName(String key) {
+        return key.indexOf('.') >= 0;
+    }
+
+    private static String onServices() {
+        String saved = sp().getString("servicesOn", "");
+        return saved.isEmpty() ? "," : "," + saved + ",";
+    }
+
     static boolean serviceOff(String key) {
-        return key != null && offServices().contains("," + key + ",");
+        if (key == null) return false;
+        return byName(key) ? !onServices().contains("," + key + ",") : offServices().contains("," + key + ",");
     }
 
     static void setServiceOff(String key, boolean off) {
+        if (byName(key)) {
+            String on = onServices().replace("," + key + ",", ",");
+            if (!off) on += key + ",";
+            put("servicesOn", on.length() > 1 ? on.substring(1, on.length() - 1) : "");
+            return;
+        }
         String list = offServices();
         list = off ? (serviceOff(key) ? list : list + key + ",") : list.replace("," + key + ",", ",");
         put("servicesOff", list.length() > 1 ? list.substring(1, list.length() - 1) : "");
