@@ -23,11 +23,11 @@ var TV = (function () {
   var lowMemory = navigator.deviceMemory && navigator.deviceMemory <= 1;
   if (tizen2 || (webos && lowMemory) || (samsung && lowMemory && (window.devicePixelRatio || 1) > 1)) {
     document.documentElement.className += ' lite';
-  }
-  // Samsungs up to 2 GB keep the animations but not the soft shadows of the parts that move (home.css): a 2021 Frame
-  // (QE55LS03A, Tizen 6, 2 GB, ratio 1) froze for up to 360 ms on each move along the picks and dropped 78 frames in
-  // 8 moves along the shelf; with flat, at most 75 ms and 13 frames.
-  if (samsung && navigator.deviceMemory && navigator.deviceMemory <= 2) {
+  } else if (samsung && navigator.deviceMemory && navigator.deviceMemory <= 2) {
+    // Samsungs up to 2 GB keep the animations but not the soft shadows of the parts that move (home.css): a 2021 Frame
+    // (QE55LS03A, Tizen 6, 2 GB, ratio 1) froze for up to 360 ms on each move along the picks and dropped 78 frames in
+    // 8 moves along the shelf; with flat, at most 75 ms and 13 frames. Not with lite, which has no shadows or
+    // animations to spare, and where the layers flat asks for would only take memory.
     document.documentElement.className += ' flat';
   }
 
