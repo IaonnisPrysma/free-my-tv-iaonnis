@@ -280,8 +280,7 @@ public class SettingsActivity extends Activity {
             super(a);
             activity = a;
             for (int i = 0; i < pop.length; i++) pop[i] = new Spring(0.28f, 0.85f, 0);
-            HomeData.Weather wx = HomeData.get(a).weather;
-            Shaders.sky(scene.palette, System.currentTimeMillis(), wx.sunrise, wx.sunset);
+            Shaders.settings(scene.palette);
             scene.setMotion(0.5f, 0.2f);
             phone = HomeMode.phone(a);
             scene.applyPalette();
