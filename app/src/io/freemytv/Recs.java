@@ -52,6 +52,7 @@ final class Recs {
         String kind;            // "movie" or "tv"
         String title, backdrop, poster, meta = "", app, pkg;   // poster: the portrait image of the narrow cards
         String link;            // opens the title in its app (looked up with Watchmode), or null: the app's home
+        String servicePkg;      // open_in_stremio: the TV's own app it streams on (pkg is then Stremio's)
         String tag;             // Trakt: "Up next: S2 E5", "On your watchlist"…, first in the meta; else null
         int mine;               // Trakt: PROGRESS, LIKED (watchlist, recommended) or 0 (TMDB's)
         boolean detailed;
@@ -331,7 +332,8 @@ final class Recs {
         Map<String, Boolean> have = new HashMap<>();   // one look per app, not per title (this runs every 15 s)
         for (Pick p : picks) {
             if ((kind == null || kind.equals(p.kind))
-                    && (!p.detailed || (p.pkg != null && have.computeIfAbsent(p.pkg, this::installed)))) {   // app missing or switched off: skip
+                    && (!p.detailed || (p.pkg != null && have.computeIfAbsent(p.pkg, this::installed)
+                    && (p.servicePkg == null || have.computeIfAbsent(p.servicePkg, this::installed))))) {   // app missing or switched off: skip
                 (p.mine == PROGRESS ? progress : p.mine == LIKED ? liked : list).add(p);
             }
         }
@@ -498,6 +500,7 @@ final class Recs {
         Map<String, Boolean> have = new HashMap<>();
         for (Pick p : picks) {
             if (p.detailed && p.pkg != null && have.computeIfAbsent(p.pkg, this::installed) && hasImage(p)
+                    && (p.servicePkg == null || have.computeIfAbsent(p.servicePkg, this::installed))
                     && seen.add(franchise(p.title))) out.add(p);
         }
         return out;
@@ -724,6 +727,7 @@ final class Recs {
         p.poster = k.poster;
         p.app = k.app;
         p.pkg = k.pkg;
+        p.servicePkg = k.servicePkg;
         p.link = k.link;
         String meta = k.meta == null ? "" : k.meta;
         if (k.tag != null && meta.startsWith(k.tag)) meta = meta.substring(k.tag.length()).replaceFirst("^ · ", "");
@@ -849,6 +853,7 @@ final class Recs {
         JSONObject ext = o.optJSONObject("external_ids");
         String imdb = ext == null ? "" : ext.optString("imdb_id", "");
         if (p.app != null && stremio() && imdb.startsWith("tt")) {     // the meta still names the TV's app it's on
+            p.servicePkg = p.pkg;   // its switch in Picks from (and the app itself) still decide whether it shows
             p.app = "stremio";
             p.pkg = STREMIO;
             p.link = "stremio:///detail/" + (p.kind.equals("movie") ? "movie" : "series") + "/" + imdb;
@@ -953,7 +958,7 @@ final class Recs {
 
     private long sourceStamp() {
         long stamp = ((key().hashCode() * 31L + REGION.hashCode()) * 31L + (Config.HIDE_ANIMATION ? 1 : 0)) * 31L + Config.PLEX_URL.hashCode();
-        stamp = stamp * 31L + (stremio() ? 1 : 0);
+        if (stremio()) stamp = stamp * 31L + 1;   // off: the same stamp as before, so nothing is fetched again
         for (String[] service : SERVICES) stamp = stamp * 31L + (installed(service[2]) ? service[2].hashCode() : 0);
         return stamp;
     }
@@ -1272,6 +1277,7 @@ final class Recs {
                 a.put(new JSONObject().put("id", p.id).put("kind", p.kind).put("title", p.title).put("backdrop", p.backdrop)
                         .put("poster", p.poster == null ? "" : p.poster).put("link", p.link == null ? "" : p.link)
                         .put("meta", p.meta).put("app", p.app == null ? "" : p.app).put("pkg", p.pkg == null ? "" : p.pkg)
+                        .put("servicePkg", p.servicePkg == null ? "" : p.servicePkg)
                         .put("tag", p.tag == null ? "" : p.tag).put("mine", p.mine).put("detailed", p.detailed));
             }
             SharedPreferences.Editor e = cache.edit().putString("picks", a.toString()).putInt("period", period).putLong("listAt", listAt)
@@ -1302,6 +1308,7 @@ final class Recs {
             p.meta = o.optString("meta");
             p.app = o.optString("app").isEmpty() ? null : o.optString("app");
             p.pkg = o.optString("pkg").isEmpty() ? null : o.optString("pkg");
+            p.servicePkg = o.optString("servicePkg").isEmpty() ? null : o.optString("servicePkg");
             p.tag = o.optString("tag").isEmpty() ? null : o.optString("tag");
             p.mine = o.optInt("mine");
             p.detailed = o.optBoolean("detailed");
