@@ -695,6 +695,7 @@ final class HomeMode {
                     owners = new HashSet<>();
                     wait.add(GOOGLE_SETUP);
                     if (homePkg != null) wait.add(homePkg);
+                    wait.add(packageOf(GOOGLE_HOME));   // a home screen too (targets)
                 }
                 Set<String> wanted = new HashSet<>(stringList(s, "disabled"));
                 String dream = originalDream(s);
@@ -718,6 +719,12 @@ final class HomeMode {
                 // Off before Free My TV: turned off again if a TV update brings one back, but never handed to
                 // Original to turn on.
                 List<String> keptOff = stringList(s, "keptOff");
+                // Switched before Google TV's home was a target beside another launcher: off now and not by us, the
+                // person turned it off (their launcher needs that), so it's theirs and Original leaves it off.
+                String googleHome = packageOf(GOOGLE_HOME);
+                boolean theirs = !googleHome.equals(homePkg) && disabledNow.contains(googleHome)
+                        && !disabled.contains(googleHome) && !keptOff.contains(googleHome);
+                if (theirs) keptOff.add(googleHome);
                 Set<String> candidates = new HashSet<>();
                 for (String pkg : wanted) {
                     if (present.contains(pkg) && !keptOff.contains(pkg) && mayTurnOff(pkg)) candidates.add(pkg);
@@ -793,6 +800,7 @@ final class HomeMode {
                 record(adb, disabled);
                 JSONObject latest = state(app);
                 latest.put("disabled", new JSONArray(sorted(disabled)));
+                if (theirs) latest.put("keptOff", new JSONArray(keptOff));
                 save(app, latest);
             } catch (Exception e) {
                 notice(app, Ui.trf("Couldn't check Free My TV: {error}", "error", e.getMessage()));
