@@ -100,6 +100,7 @@ var Prefs = (function () {
       if (off) list.push(key);
       this.set('servicesOff', list);
     },
+    openPicks: function () { return pick('openPicks', CONFIG.openPicksIn === 'nuvio' ? 'nuvio' : 'apps'); },
     set: function (name, value) { v[name] = value; save(); this.version++; },
     setCoin: function (i, on) {
       var c = (pick('coins', null) || [true, true, true, true]).slice();
