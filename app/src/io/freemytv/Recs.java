@@ -206,6 +206,7 @@ final class Recs {
     private Recs(Context c) {
         context = c;
         cache = c.getSharedPreferences("recs", Context.MODE_PRIVATE);
+        byName = readByName(c);
         if (cache.getInt("version", 0) != CACHE_VERSION) cache.edit().clear().putInt("version", CACHE_VERSION).apply();
         try {
             String saved = cache.getString("picks", null);
@@ -375,7 +376,82 @@ final class Recs {
 
     /** Name of the service the pick is on ("Netflix"), or empty. */
     static String serviceName(Pick p) {
-        return p == null || p.app == null ? "" : SERVICE_NAME.get(p.app);
+        return p == null || p.app == null ? "" : name(p.app);
+    }
+
+    /**
+     * Services SERVICES doesn't know, found by name: a TMDB service in REGION named like a TV app ("Oldflix"). As SERVICES
+     * rows {plain TMDB name, key = package, package, app name}, from the last list (recs-services.json, which the settings
+     * read in another process). They start off in Picks from.
+     */
+    private static volatile List<String[]> byName = new ArrayList<>();
+
+    /** Not by name: Plex's TMDB entry is its free catalogue, not the person's library (#135); YouTube would join on almost every TV. */
+    private static final Set<String> NOT_BY_NAME = new HashSet<>(Arrays.asList("plex", "youtube"));
+
+    private static String name(String key) {
+        String known = SERVICE_NAME.get(key);
+        if (known != null) return known;
+        for (String[] s : byName) if (s[1].equals(key)) return s[3];
+        return "";
+    }
+
+    /** "Oldflix" and "OLDFLIX", "Claro video" and "Claro Vídeo": compared without case, accents or punctuation, in any script. */
+    static String plain(String name) {
+        String n = java.text.Normalizer.normalize(name, java.text.Normalizer.Form.NFKD).replaceAll("\\p{M}", "");
+        return n.toLowerCase(Locale.ROOT).replace("+", " plus").replaceAll("[^\\p{L}\\p{N}]+", " ").trim();
+    }
+
+    private static List<String[]> readByName(Context c) {
+        List<String[]> out = new ArrayList<>();
+        try (FileInputStream in = new FileInputStream(new File(c.getFilesDir(), "recs-services.json"))) {
+            JSONArray a = new JSONArray(read(in));
+            for (int i = 0; i < a.length(); i++) {
+                JSONArray s = a.getJSONArray(i);
+                out.add(new String[] {s.getString(0), s.getString(1), s.getString(2), s.getString(3)});
+            }
+        } catch (Exception ignored) {   // none found yet
+        }
+        return out;
+    }
+
+    /** Through a temporary file per process (the screensaver has its own Recs on Android 11 to 12L): the settings read it. */
+    private void writeByName(List<String[]> found) {
+        JSONArray a = new JSONArray();
+        for (String[] s : found) a.put(new JSONArray(Arrays.asList(s)));
+        File tmp = new File(context.getFilesDir(), "recs-services." + android.os.Process.myPid() + ".tmp");
+        try (FileOutputStream out = new FileOutputStream(tmp)) {
+            out.write(a.toString().getBytes(StandardCharsets.UTF_8));
+            out.getFD().sync();
+        } catch (IOException e) {
+            //noinspection ResultOfMethodCallIgnored
+            tmp.delete();
+            return;
+        }
+        //noinspection ResultOfMethodCallIgnored
+        tmp.renameTo(new File(context.getFilesDir(), "recs-services.json"));
+    }
+
+    /**
+     * Whether a title's own list has the service by subscription. /discover alone can't say: it matches the service and
+     * the type separately, so a store that only rents a title also comes back when someone else streams it.
+     */
+    private boolean hasTitles(int provider) {
+        try {
+            for (String kind : new String[] {"movie", "tv"}) {
+                JSONArray titles = get("/discover/" + kind + "?language=" + lang() + "&watch_region=" + REGION + "&with_watch_monetization_types=flatrate"
+                        + "&include_adult=false&sort_by=popularity.desc&with_watch_providers=" + provider).getJSONArray("results");
+                for (int i = 0; i < titles.length() && i < 5; i++) {
+                    JSONObject br = get("/" + kind + "/" + titles.getJSONObject(i).getInt("id") + "/watch/providers?language=" + lang())
+                            .getJSONObject("results").optJSONObject(REGION);
+                    JSONArray flat = br == null ? null : br.optJSONArray("flatrate");
+                    for (int j = 0; flat != null && j < flat.length(); j++) if (flat.getJSONObject(j).optInt("provider_id") == provider) return true;
+                }
+            }
+        } catch (Exception e) {
+            AppLog.w("recs: titles of service " + provider + ": " + e.getMessage());
+        }
+        return false;
     }
 
     /** The pick's ready backdrop (or null: builds it in the background and notifies when it's ready). */
@@ -577,19 +653,36 @@ final class Recs {
     // MARK: - TMDB
 
     private void fetchList(int p, Map<String, Pick> known) throws Exception {
-        // None of the services we know is on the TV (or hide_services hides them all): no region would change that.
+        // Whether a service we know is on the TV (and not hidden): with none, and none found by name, the error says so.
         boolean any = false;
         for (String[] s : SERVICES) any |= installed(s[2]);
-        if (!any) throw new IOException(NO_KNOWN_APPS);
         // The services the TV has, by their TMDB ids in your region.
         Map<Integer, String[]> services = new HashMap<>();
         JSONArray providers = get("/watch/providers/movie?language=" + lang() + "&watch_region=" + REGION).getJSONArray("results");
+        // The TV's other apps by name: a service SERVICES doesn't know is theirs when the names are the same.
+        Map<String, String[]> apps = new HashMap<>();
+        Set<String> knownPkgs = new HashSet<>();
+        for (String[] s : SERVICES) knownPkgs.add(s[2]);
+        for (String[] app : HomeApps.launchable(context)) {
+            String label = plain(app[1]);
+            if (!label.isEmpty() && !NOT_BY_NAME.contains(label) && !knownPkgs.contains(app[0])) apps.put(label, app);
+        }
+        List<String[]> found = new ArrayList<>();
         for (int i = 0; i < providers.length(); i++) {
             JSONObject o = providers.getJSONObject(i);
-            String[] s = service(o.optString("provider_name"), o.optInt("provider_id"));
+            String name = o.optString("provider_name");
+            String[] s = service(name, o.optInt("provider_id"));
+            if (s == null || !SERVICE_NAME.containsKey(s[1])) {
+                String[] app = apps.get(plain(name));
+                // A name that only rents or buys waits until it has titles.
+                s = app != null && hasTitles(o.optInt("provider_id")) ? new String[] {plain(name), app[0], app[0], app[1]} : null;
+                if (s != null) found.add(s);
+            }
             if (s != null && installed(s[2])) services.put(o.getInt("provider_id"), s);
         }
-        if (services.isEmpty()) throw new IOException(NO_APPS);
+        byName = found;
+        writeByName(found);
+        if (services.isEmpty()) throw new IOException(any ? NO_APPS : NO_KNOWN_APPS);
         // Signed in to Trakt: what they're in the middle of comes first, then their watchlist and Trakt's
         // recommendations; what they've watched stays out. Trakt failing leaves the picks as they'd be without it.
         // The list keeps the account it was made with (0: none, and always outside :home), so a list the screensaver's
@@ -848,7 +941,7 @@ final class Recs {
                 p.pkg = s[2];
             }
         }
-        if (p.app != null) parts.add(SERVICE_NAME.get(p.app));
+        if (p.app != null) parts.add(name(p.app));
         if (p.tag != null) parts.add(0, p.tag);
         JSONObject ext = o.optJSONObject("external_ids");
         String imdb = ext == null ? "" : ext.optString("imdb_id", "");
@@ -930,6 +1023,7 @@ final class Recs {
             if (installed(s[2])) return s;
             if (first == null) first = s;
         }
+        if (first == null) for (String[] s : byName) if (s[0].equals(plain(name))) return s;
         return first;
     }
 
@@ -940,6 +1034,9 @@ final class Recs {
         for (String[] s : SERVICES) {
             if (HomeApps.launchIntent(c.getPackageManager(), s[2]) != null && seen.add(s[1])) out.add(new String[] {s[1], SERVICE_NAME.get(s[1])});
         }
+        for (String[] s : readByName(c)) {
+            if (HomeApps.launchIntent(c.getPackageManager(), s[2]) != null && seen.add(s[1])) out.add(new String[] {s[1], s[3]});
+        }
         return out;
     }
 
@@ -949,6 +1046,7 @@ final class Recs {
      */
     private boolean installed(String pkg) {
         for (String[] s : SERVICES) if (s[2].equals(pkg) && Prefs.serviceOff(s[1])) return false;
+        for (String[] s : byName) if (s[2].equals(pkg) && Prefs.serviceOff(s[1])) return false;
         return HomeApps.launchIntent(context.getPackageManager(), pkg) != null;
     }
 
@@ -960,6 +1058,8 @@ final class Recs {
         long stamp = ((key().hashCode() * 31L + REGION.hashCode()) * 31L + (Config.HIDE_ANIMATION ? 1 : 0)) * 31L + Config.PLEX_URL.hashCode();
         if (stremio()) stamp = stamp * 31L + 1;   // off: the same stamp as before, so nothing is fetched again
         for (String[] service : SERVICES) stamp = stamp * 31L + (installed(service[2]) ? service[2].hashCode() : 0);
+        // Switched on, one found by name counts; off, finding it changes nothing, so nothing is fetched again.
+        for (String[] service : byName) stamp = stamp * 31L + (installed(service[2]) ? service[2].hashCode() : 0);
         return stamp;
     }
 
@@ -1000,6 +1100,7 @@ final class Recs {
                 JSONArray sources = new JSONArray(watchmode("/title/" + found.getJSONObject(0).getInt("id") + "/sources/?regions=" + REGION));
                 String[] service = null;
                 for (String[] s : SERVICES) if (s[1].equals(p.app)) service = s;
+                for (String[] s : byName) if (s[1].equals(p.app)) service = s;
                 for (int i = 0; service != null && i < sources.length() && link.isEmpty(); i++) {
                     JSONObject s = sources.getJSONObject(i);
                     String name = s.optString("name").toLowerCase(Locale.ROOT).replace(" ", "");

@@ -2199,10 +2199,10 @@ public class SettingsActivity extends Activity {
                     LIST_X * k + 30 * k, hy, hint);
         }
 
-        /** "Some" only when one of the services the TV has is off (a service it doesn't have, or a typo in hide_services, doesn't count). */
+        /** "Some" only when one of the services the TV has is off (one it doesn't have, a typo in hide_services, or one found by name that starts off, doesn't count). */
         private void countServicesOff() {
             someServicesOff = false;
-            for (String[] service : Recs.installedServices(getContext())) someServicesOff |= Prefs.serviceOff(service[0]);
+            for (String[] service : Recs.installedServices(getContext())) someServicesOff |= service[0].indexOf('.') < 0 && Prefs.serviceOff(service[0]);
         }
 
         private void toggleService() {
