@@ -1146,12 +1146,14 @@ final class Recs {
                 for (String[] s : byName) if (s[1].equals(p.app)) service = s;
                 for (int i = 0; service != null && i < sources.length() && link.isEmpty(); i++) {
                     JSONObject s = sources.getJSONObject(i);
-                    String name = s.optString("name").toLowerCase(Locale.ROOT).replace(" ", "");
+                    String words = s.optString("name").toLowerCase(Locale.ROOT), name = words.replace(" ", "");
                     String want = service[0].replace(" ", "");
                     // Not a channel sold inside another app ("AppleTV+ Amazon Channel", "Paramount+ (Via Amazon Prime)"):
                     // that link opens Amazon or Apple's app, not the one the pick is for.
                     boolean resold = name.contains("channel") || name.contains("(via");
-                    boolean same = !resold && (want.equals("max") || WHOLE_NAME.contains(want) ? name.equals(want) : name.contains(want));
+                    // Max as a word, as for TMDB's providers: Watchmode calls it "HBO Max" again, and Cinemax isn't it.
+                    boolean same = !resold && (want.equals("max") ? words.matches(".*\\bmax\\b.*")
+                            : WHOLE_NAME.contains(want) ? name.equals(want) : name.contains(want));
                     if (same && s.optString("type").equals("sub") && s.optString("web_url").startsWith("https://")) link = s.optString("web_url");
                 }
             }
