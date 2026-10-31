@@ -127,7 +127,10 @@ stays, and Free My TV opens with a long press of a number key.
 5. **Install:** the first time needs the TV's passphrase, typed by them: ask them to run
    `python3 webos/install.py <IP>` in their own terminal (yours can't answer its prompt, and the passphrase doesn't go
    in the chat). It keeps the unlocked key in `~/.ssh/freemytv_webos_<IP>` (dots as underscores), so later updates
-   run from your terminal with the same command.
+   run from your terminal with the same command. On a TV that isn't 4K (`getSystemInfo` says `"UHD":"false"`), it
+   changes the package's `resolution` to 1280x720 before copying it: LG's Full HD and HD sets draw apps at that size,
+   and a 2019 HD one (webOS 3.9) showed a 1920x1080 app in its top-left two thirds (#402). `--1080p` installs it as
+   built; `python3 webos/build.py --hd` builds it at 1280x720.
 6. **Tell them:** while Free My TV is open, holding a number key pins it to that key (on a remote without number keys,
    it's in LG's app list on the home screen). Developer Mode lasts about 40 days; *EXTEND* in that app renews it (if
    it runs out, the TV removes developer apps, and installing again brings it back). `--uninstall` removes Free My TV.
