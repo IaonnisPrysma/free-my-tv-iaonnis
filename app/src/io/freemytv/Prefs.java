@@ -312,6 +312,19 @@ final class Prefs {
 
     static void setRecents(String v) { put("recents", v); }
 
+    /**
+     * After the TV starts from off, never from standby (Home Settings > At power-on, #396 and #346): "tv" (the TV's
+     * choice), "home" (ours, where a TV app takes the screen at boot) or "live" (Live TV, where the TV starts on ours).
+     */
+    static final String[] POWER_ON = {"tv", "home", "live"};
+
+    static String powerOn() {
+        String v = sp().getString("powerOn", "tv");
+        return v.equals("home") || v.equals("live") ? v : "tv";
+    }
+
+    static void setPowerOn(String v) { put("powerOn", v); }
+
     // MARK: - Widgets and coins
 
     static boolean weather() { return sp().getBoolean("weather", true); }
