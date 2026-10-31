@@ -194,6 +194,13 @@ final class Prefs {
 
     static void setCards(int n) { put("cards", n); }
 
+    /** Cartoons and anime out of the picks (Home Settings > Picks): hide_animation in config.properties until changed here. */
+    static boolean hideAnimation() {
+        return sp().getBoolean("hideAnimation", Config.HIDE_ANIMATION);
+    }
+
+    static void setHideAnimation(boolean hide) { put("hideAnimation", hide); }
+
     // MARK: - Picks from
 
     private static String offList;

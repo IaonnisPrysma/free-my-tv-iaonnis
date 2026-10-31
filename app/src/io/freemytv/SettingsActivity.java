@@ -941,7 +941,7 @@ public class SettingsActivity extends Activity {
                                 screen = HOME_SETTINGS;
                             } else if (screen == PICK_FROM) {
                                 countServicesOff();
-                                pickScroll = 0;   // the Picks screen has two rows
+                                pickScroll = 0;   // the Picks screen has a few rows
                                 focus = 1;
                                 screen = PICKS;
                             } else if (screen == WATCH_APPS) {
@@ -1032,19 +1032,20 @@ public class SettingsActivity extends Activity {
         }
 
         private String[] picksLabels() {
-            return Trakt.available() ? new String[] {Ui.tr("Picks per tab"), Ui.tr("Picks from"), "Trakt"}
-                    : new String[] {Ui.tr("Picks per tab"), Ui.tr("Picks from")};
+            return Trakt.available() ? new String[] {Ui.tr("Picks per tab"), Ui.tr("Picks from"), Ui.tr("Cartoons and anime"), "Trakt"}
+                    : new String[] {Ui.tr("Picks per tab"), Ui.tr("Picks from"), Ui.tr("Cartoons and anime")};
         }
 
         private String[] picksValues() {
             String from = someServicesOff ? Ui.tr("services|Some") : Ui.tr("services|All");
-            return Trakt.available() ? new String[] {String.valueOf(Prefs.cards()), from, traktValue()}
-                    : new String[] {String.valueOf(Prefs.cards()), from};
+            String animation = onOff(!Prefs.hideAnimation());
+            return Trakt.available() ? new String[] {String.valueOf(Prefs.cards()), from, animation, traktValue()}
+                    : new String[] {String.valueOf(Prefs.cards()), from, animation};
         }
 
         /** The Trakt row on the Picks screen (the last one), only with a Trakt API app in config.properties; else -1. */
         private static int traktRow() {
-            return Trakt.available() ? 2 : -1;
+            return Trakt.available() ? 3 : -1;
         }
 
         private String traktValue() {
@@ -1375,6 +1376,8 @@ public class SettingsActivity extends Activity {
                 if (focus == 0) {
                     int n = Prefs.cards() - 3, span = Recs.MAX_CARDS - 3 + 1;
                     Prefs.setCards(3 + (n + dir + span) % span);
+                } else if (focus == 2) {
+                    Prefs.setHideAnimation(!Prefs.hideAnimation());
                 }
                 return;
             }
