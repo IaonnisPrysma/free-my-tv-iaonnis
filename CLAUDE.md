@@ -180,7 +180,8 @@ Developer Mode; Samsung's home screen stays. Two ways:
    when the TV says `install completed` (`cmd_ret:0` comes after failures too). `--uninstall` removes
    it; some TVs' sdbd doesn't answer that, and then it's removed on the TV (Apps, Settings, Free My TV, Delete).
    A bare `install failed[118]` (Tizen 2.4 gives no reason) can be a copy left by an earlier failed install, signed
-   with another certificate and not shown on the TV: `--uninstall`, then install again (a 2016 KU6640, #349). Still
+   with another certificate and not shown on the TV: `--uninstall`, then install again (2016 KU6640 and KU6400, #349;
+   the KU6400 took the Tizen certificate after that, while a Samsung one, Public with its DUID, kept getting 118). Still
    118 after that, for a package id the TV has never seen and from Samsung's own `tizen install` with an install
    permit: the model refuses developer installs (a 2016 Full HD K5670, `16_HAWKM_FHD`, #349), so suggest a Google TV
    streamer on HDMI.
