@@ -389,6 +389,10 @@ final class Recs {
     /** Not by name: Plex's TMDB entry is its free catalogue, not the person's library (#135); YouTube would join on almost every TV. */
     private static final Set<String> NOT_BY_NAME = new HashSet<>(Arrays.asList("plex", "youtube"));
 
+    /** hasTitles' answers for a day, by provider (only on `io`): a TV without the known services lists again every 10 minutes. */
+    private final Map<Integer, Boolean> titlesKnown = new HashMap<>();
+    private long titlesAt;
+
     private static String name(String key) {
         String known = SERVICE_NAME.get(key);
         if (known != null) return known;
@@ -437,18 +441,29 @@ final class Recs {
      * the type separately, so a store that only rents a title also comes back when someone else streams it.
      */
     private boolean hasTitles(int provider) {
+        long now = System.currentTimeMillis();
+        if (now - titlesAt > 24 * 3600_000L || now < titlesAt) {
+            titlesKnown.clear();
+            titlesAt = now;
+        }
+        Boolean known = titlesKnown.get(provider);
+        if (known != null) return known;
         try {
+            boolean found = false;
             for (String kind : new String[] {"movie", "tv"}) {
                 JSONArray titles = get("/discover/" + kind + "?language=" + lang() + "&watch_region=" + REGION + "&with_watch_monetization_types=flatrate"
                         + "&include_adult=false&sort_by=popularity.desc&with_watch_providers=" + provider).getJSONArray("results");
-                for (int i = 0; i < titles.length() && i < 5; i++) {
+                for (int i = 0; i < titles.length() && i < 5 && !found; i++) {
                     JSONObject br = get("/" + kind + "/" + titles.getJSONObject(i).getInt("id") + "/watch/providers?language=" + lang())
                             .getJSONObject("results").optJSONObject(REGION);
                     JSONArray flat = br == null ? null : br.optJSONArray("flatrate");
-                    for (int j = 0; flat != null && j < flat.length(); j++) if (flat.getJSONObject(j).optInt("provider_id") == provider) return true;
+                    for (int j = 0; flat != null && j < flat.length(); j++) found |= flat.getJSONObject(j).optInt("provider_id") == provider;
                 }
+                if (found) break;
             }
-        } catch (Exception e) {
+            titlesKnown.put(provider, found);
+            return found;
+        } catch (Exception e) {   // not kept: the next list asks again
             AppLog.w("recs: titles of service " + provider + ": " + e.getMessage());
         }
         return false;
@@ -678,7 +693,8 @@ final class Recs {
                 s = app != null && hasTitles(o.optInt("provider_id")) ? new String[] {plain(name), app[0], app[0], app[1]} : null;
                 if (s != null) found.add(s);
             }
-            if (s != null && installed(s[2])) services.put(o.getInt("provider_id"), s);
+            // serviceOff too: installed() knows only the last list's names, and one found just now starts off.
+            if (s != null && installed(s[2]) && !Prefs.serviceOff(s[1])) services.put(o.getInt("provider_id"), s);
         }
         byName = found;
         writeByName(found);
@@ -1058,8 +1074,9 @@ final class Recs {
         long stamp = ((key().hashCode() * 31L + REGION.hashCode()) * 31L + (Config.HIDE_ANIMATION ? 1 : 0)) * 31L + Config.PLEX_URL.hashCode();
         if (stremio()) stamp = stamp * 31L + 1;   // off: the same stamp as before, so nothing is fetched again
         for (String[] service : SERVICES) stamp = stamp * 31L + (installed(service[2]) ? service[2].hashCode() : 0);
-        // Switched on, one found by name counts; off, finding it changes nothing, so nothing is fetched again.
-        for (String[] service : byName) stamp = stamp * 31L + (installed(service[2]) ? service[2].hashCode() : 0);
+        // Switched on, one found by name counts; off, finding it changes nothing, so nothing is fetched again (a 0 would:
+        // it still multiplies the stamp by 31).
+        for (String[] service : byName) if (installed(service[2])) stamp = stamp * 31L + service[2].hashCode();
         return stamp;
     }
 
