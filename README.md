@@ -115,7 +115,7 @@ You need an LG TV (webOS 3 or newer) and a computer on the same Wi-Fi, with Pyth
    git clone https://github.com/simbasjungles/free-my-tv && cd free-my-tv
    python3 webos/build.py
    ```
-3. **Install.** The first time, it asks for the TV's passphrase; updates don't:
+3. **Install.** The first time, it asks for the TV's passphrase; updates don't. On a TV that isn't 4K, it puts the app in at 1280 × 720, the size those TVs draw apps at:
    ```bash
    python3 webos/install.py 192.168.1.50
    ```
@@ -123,7 +123,7 @@ You need an LG TV (webOS 3 or newer) and a computer on the same Wi-Fi, with Pyth
 
 With an AI assistant, say *"Install Free My TV (github.com/simbasjungles/free-my-tv) on my LG TV at 192.168.1.50. I live in Lisbon."* It builds the app and hands you the install command, so you type the passphrase yourself.
 
-With the [webOS Homebrew Channel](https://github.com/webosbrew/webos-homebrew-channel), you can skip the computer: add the repository `https://freemytv.io/webos/apps.json` in the Channel's settings, and Free My TV shows up in its list. That's the release build: it takes the city from the TV's time zone (change it in *Home Settings* → *City*), and for the picks you type your [TMDB key](#the-tmdb-key) in *Home Settings* → *TMDB key*. If you installed your own build, don't update it from there, or the release replaces it.
+With the [webOS Homebrew Channel](https://github.com/webosbrew/webos-homebrew-channel), you can skip the computer: add the repository `https://freemytv.io/webos/apps.json` in the Channel's settings, and Free My TV shows up in its list. That's the release build: it takes the city from the TV's time zone (change it in *Home Settings* → *City*), and for the picks you type your [TMDB key](#the-tmdb-key) in *Home Settings* → *TMDB key*. If you installed your own build, don't update it from there, or the release replaces it. On some LG TVs that aren't 4K, that build fills only the top-left part of the screen: `install.py` puts it in at the right size there.
 
 On webOS 6 and newer, LG doesn't let apps installed through Developer Mode see which apps the TV has. Free My TV then shows the well-known ones it finds (Netflix, YouTube, Prime Video, Disney+, Apple TV, Plex and more) and asks the TV, once, for the access LG's phone app uses: a message on the TV asks whether to allow Free My TV. Allow it, and from the next start all your apps show, with their icons.
 
@@ -161,7 +161,7 @@ The first values come from `config.properties`, created by the first build (Goog
 | `home_assistant_url`, `home_assistant_entities` | Optional: buttons for your own [Home Assistant](#home-assistant-buttons-optional) in the bottom drawer (Google TV only; the token goes from the computer, not in here) | empty |
 | `latitude`, `longitude` | Your city, for the weather and the sunset | New York |
 | `city` | The name on the weather card | `Weather` |
-| `hide_animation` | Leave cartoons and anime out of the picks | `false` |
+| `hide_animation` | Leave cartoons and anime out of the picks; *Cartoons and anime* in Home Settings (under *Picks* on Google TV) changes it on the TV | `false` |
 | `open_in_stremio` | A pick opens on its page in [Stremio](https://www.stremio.com/) when the Stremio app is on the TV, instead of in the app it streams on. The picks stay the same: only from the TV's own apps. Google TV only | `false` |
 | `language` | `auto` (follows the TV), or a language with a [translation](#translations) (`en`, `pt`, `es`, `de`, `ru`, `fr`, `ja`…) | `auto` |
 | `show_crypto` | Show Binance crypto prices on home and screensaver | `true` |
@@ -170,11 +170,12 @@ The first values come from `config.properties`, created by the first build (Goog
 | `theme` | `auto` (dark from sunset to sunrise), `light` or `dark` | `auto` |
 | `disable_assistant` | Also turn off Google Assistant | `false` |
 | `screensaver` | `false` keeps the TV's own screensaver: Free My TV then changes only the home screen and the promo apps (Google TV) | `true` |
-| `hide_services` | Streaming services to leave out of the picks even when their app is on the TV (`netflix`, `prime`, `disney`…), comma separated; for apps the TV ships that you don't subscribe to. It is where the switches in Home Settings › Picks › Picks from start; what you switch on the TV wins. Google TV only | empty |
+| `hide_services` | Streaming services to leave out of the picks even when their app is on the TV (`netflix`, `prime`, `disney`…), comma separated; for apps the TV ships that you don't subscribe to. On Google TV and Android TV, a service that TMDB lists in your country under the same name as an app on the TV also appears in *Picks from*, off until you switch it on. It is where the switches in Home Settings › Picks › Picks from start; what you switch on the TV wins. Google TV only | empty |
 | `hide_apps` | Apps to leave out of the shelf, All Apps and the picks, by id or name (part of it), comma separated; for apps the TV ships that can't be uninstalled, like Samsung's built-in Netflix. LG and Samsung only | empty |
 | `shelf_apps` | The shelf's apps in this order, by id or name (part of it), comma separated; changing it wins once over the shelf picked on the TV. On Samsung, a whole app id also brings an app the TV leaves out of its list, like one installed in Developer Mode. LG and Samsung only | empty |
 | `drawer_first` | `true` opens the home screen with the drawer already out (apps in the middle, inputs, weather and prices below), so nothing has to be scrolled to reach the inputs; Back closes it to the full page. For a TV whose streaming apps live on a box, where the picks stay empty. LG and Samsung only | `false` |
 | `immich_server` | Optional: your [Immich](https://immich.app) server: [your own photos](#from-an-immich-server) come from it, on each TV you send its key to (with `tools/send_key.py`, never here). Google TV only | empty |
+| `open_picks_in` | Where a pick opens: `apps` (the streaming app that has it) or `nuvio` (its page in Nuvio, when the TV has it); Home Settings changes it on the TV. LG only (Samsung passes no link yet) | `apps` |
 
 Changed something? Run `./build.sh` and install again. Keep `freemytv.keystore`: updates are signed with it.
 
@@ -273,6 +274,8 @@ To remove it for good, switch to *Original* first, then uninstall *Free My TV* (
 - On HY300 projectors, whose stock home screen was the only way to them, the bottom drawer gets *Keystone* (keystone, zoom and projection mode) and *Screen Mirroring* (the projector's Miracast receiver), and HDMI opens through the projector's own player.
 - *Home Settings* → *Recent Apps* (off by default, Google TV and Android TV) puts *Recent Apps* in the bottom drawer, and on the remote's app-switch key where it has one; *Drawer and Home twice* also opens it with two quick presses of Home (not on Xiaomi TVs, whose remote sends one press as several), and *Top Buttons* can add it as a round button. It shows the open apps over the blurred home screen: OK opens one, ▲ closes it. Closing stops the app (`am force-stop`), so it starts from scratch next time; the TV's own pieces, what its inputs and remote need, apps whose accessibility service is on, and the keyboard can't be closed. It reads the list only while it's open, with `dumpsys activity recents` and `ps -A` through the TV's ADB.
 - On Google TV, Android TV and Fire TV, hold OK on a top button or shelf app to move it directly on Home: ◀ ▶ changes its position, OK saves, and Back cancels. Leaving Home also cancels an unfinished move. A short press still opens the item; the Shelf and Top Buttons editors in Settings remain available.
+- *Free My TV* → *Top Buttons* → *App Store* (Google TV, Android TV and Fire TV) adds a shopping-bag shortcut to the top of the home screen. It opens Google Play or, on Fire TV, Amazon Appstore. OK adds or removes it; ◀ ▶ moves it next to Live TV or wherever you prefer. It starts off, and is unavailable when neither supported store can be opened.
+- *Home Settings* → *At power-on* (Google TV and Android TV, where the TV has live TV) decides what shows after the TV starts from off; waking from standby is left alone. *TV's choice* (the default) changes nothing. *Home screen* gives the screen back to Free My TV when the TV's live TV app puts itself on top during the start, as some MediaTek TVs do, but only if no key has been pressed since the home screen came up. *Live TV* opens live TV about 10 seconds after the home screen comes up, unless a key was pressed first (on Sony, Sony's TV app, which remembers the last input and channel).
 - *Free My TV* → *Sleep Timer* turns the TV off after 5 minutes to 4 hours, with the minutes left over any app (top center, or the corner you pick). It presses the remote's Sleep key through the TV's own ADB, so it works in Free My TV mode; *Original* stops it.
 - Picture, sound, inputs, remote pairing, Google services and the Play Store are on a protected list, checked before every change, and so are Android's own pieces and factory menus. Before anything goes off, the TV is asked whether its inputs or its remote's Input key depend on it; those stay on.
 - On Google TV, the setup app goes off before the stock home screen and comes back after it, so its recovery screen never takes over the Home button in between.

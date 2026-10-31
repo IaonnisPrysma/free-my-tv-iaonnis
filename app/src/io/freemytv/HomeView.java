@@ -665,7 +665,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             heroLayer.invalidate();
             wake();
         });
-        setLightButtons(HomeApps.topButtons());
+        setLightButtons(HomeApps.topButtons(null));
         recs.setLight(true);
         checkNight(false);
         sheetLayer.setVisibility(INVISIBLE);
@@ -2660,7 +2660,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             final List<HomeApps.Item> st = statusList(c);
             final List<HomeApps.Item> d = drawerList(c);
             final List<HomeApps.Item> o = apps ? HomeApps.others(c) : null;
-            final List<HomeApps.Item> top = apps ? HomeApps.topButtons() : null;   // they change with Prefs too
+            final List<HomeApps.Item> top = apps ? HomeApps.topButtons(c) : null;   // they change with Prefs too
             // Only read when it's shown: with the picks or the clock, Continue Watching costs nothing.
             final String mode = Prefs.topContent();
             final boolean allowed = WatchNext.allowed(c);
@@ -3519,7 +3519,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         final List<String> order = new ArrayList<>();
         if (reorderTop) {
             for (HomeApps.Item it : lightButtons) order.add(it.key);
-            Prefs.setTopButtons(order);
+            // Unavailable buttons (for example a missing store) keep their saved slots.
+            List<String> saved = Prefs.topButtons();
+            Prefs.setTopButtons(VisibleOrder.replace(saved == null ? HomeApps.TOP_DEFAULT : saved, order));
             if (appsStale && running) reloadSoon();
             return;
         }

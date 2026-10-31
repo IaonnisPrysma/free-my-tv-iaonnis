@@ -941,7 +941,7 @@ public class SettingsActivity extends Activity {
                                 screen = HOME_SETTINGS;
                             } else if (screen == PICK_FROM) {
                                 countServicesOff();
-                                pickScroll = 0;   // the Picks screen has two rows
+                                pickScroll = 0;   // the Picks screen has a few rows
                                 focus = 1;
                                 screen = PICKS;
                             } else if (screen == WATCH_APPS) {
@@ -973,9 +973,9 @@ public class SettingsActivity extends Activity {
          *  now playing, Home Assistant (only on builds with its address), quotes, one row per coin, then the TMDB key and
          *  updates (the last row). */
         private static final int CLOCK_ROW = 3, PHOTOS_ROW = 4, TOP_ROW = 6, PICKS_ROW = 7, WATCH_ROW = 8,
-                SAVER_ROW = 9, ANDROID_APPS_ROW = 10, STATUS_ICONS_ROW = 11, RECENTS_ROW = 12, WEATHER_ROW = 13, CITY_ROW = 14,
-                FORECAST_ROW = 15, PLAYING_ROW = 16, HOME_ROW = Config.HOME_ASSISTANT ? 17 : -1,
-                QUOTES_ROW = Config.HOME_ASSISTANT ? 18 : 17, COIN_ROWS = QUOTES_ROW + 1;
+                SAVER_ROW = 9, ANDROID_APPS_ROW = 10, STATUS_ICONS_ROW = 11, RECENTS_ROW = 12, POWER_ON_ROW = 13,
+                WEATHER_ROW = 14, CITY_ROW = 15, FORECAST_ROW = 16, PLAYING_ROW = 17, HOME_ROW = Config.HOME_ASSISTANT ? 18 : -1,
+                QUOTES_ROW = Config.HOME_ASSISTANT ? 19 : 18, COIN_ROWS = QUOTES_ROW + 1;
         /** No "home" on Xiaomi TVs: their remote sends one Home press as a burst of presses (HomeView.BURST_MS). */
         private static final String[] RECENTS = RemoteKeys.XIAOMI ? new String[] {"off", "drawer"}
                 : new String[] {"off", "drawer", "home"};
@@ -1001,6 +1001,7 @@ public class SettingsActivity extends Activity {
             l.add(Ui.tr("Android apps"));
             l.add(Ui.tr("Status icons"));   // before the weather widget: City and Forecast are the widget's
             l.add(Ui.tr("Recent Apps"));
+            l.add(Ui.tr("At power-on"));
             l.add(Ui.tr("Weather widget"));
             l.add(Ui.tr("City"));
             l.add(Ui.tr("Forecast"));
@@ -1032,19 +1033,20 @@ public class SettingsActivity extends Activity {
         }
 
         private String[] picksLabels() {
-            return Trakt.available() ? new String[] {Ui.tr("Picks per tab"), Ui.tr("Picks from"), "Trakt"}
-                    : new String[] {Ui.tr("Picks per tab"), Ui.tr("Picks from")};
+            return Trakt.available() ? new String[] {Ui.tr("Picks per tab"), Ui.tr("Picks from"), Ui.tr("Cartoons and anime"), "Trakt"}
+                    : new String[] {Ui.tr("Picks per tab"), Ui.tr("Picks from"), Ui.tr("Cartoons and anime")};
         }
 
         private String[] picksValues() {
             String from = someServicesOff ? Ui.tr("services|Some") : Ui.tr("services|All");
-            return Trakt.available() ? new String[] {String.valueOf(Prefs.cards()), from, traktValue()}
-                    : new String[] {String.valueOf(Prefs.cards()), from};
+            String animation = onOff(!Prefs.hideAnimation());
+            return Trakt.available() ? new String[] {String.valueOf(Prefs.cards()), from, animation, traktValue()}
+                    : new String[] {String.valueOf(Prefs.cards()), from, animation};
         }
 
         /** The Trakt row on the Picks screen (the last one), only with a Trakt API app in config.properties; else -1. */
         private static int traktRow() {
-            return Trakt.available() ? 2 : -1;
+            return Trakt.available() ? 3 : -1;
         }
 
         private String traktValue() {
@@ -1101,6 +1103,8 @@ public class SettingsActivity extends Activity {
             v[WATCH_ROW] = watchCount();
             String rec = Prefs.recents();
             v[RECENTS_ROW] = rec.equals("home") ? Ui.tr("recents|Drawer and Home twice") : rec.equals("drawer") ? Ui.tr("recents|In the drawer") : Ui.tr("Off");
+            String power = Prefs.powerOn();
+            v[POWER_ON_ROW] = power.equals("home") ? Ui.tr("power|Home screen") : power.equals("live") ? Ui.tr("Live TV") : Ui.tr("TV's choice");
             v[ANDROID_APPS_ROW] = onOff(Prefs.androidApps());
             v[STATUS_ICONS_ROW] = onOff(Prefs.statusIcons());
             v[WEATHER_ROW] = onOff(Prefs.weather());
@@ -1136,14 +1140,17 @@ public class SettingsActivity extends Activity {
                             : i == 6 ? Capabilities.NEED_ADB : null;
                 case HOME_SETTINGS:
                     return pickScroll + i == PLAYING_ROW ? Capabilities.NEED_LISTENER
-                            : pickScroll + i == HOME_ROW ? Capabilities.NEED_HOME_ASSISTANT : null;
+                            : pickScroll + i == HOME_ROW ? Capabilities.NEED_HOME_ASSISTANT
+                            : pickScroll + i == POWER_ON_ROW ? Capabilities.NEED_LIVE_TV : null;
                 case POWER: {
                     int id = powerRows()[i];
                     return id == P_WHERE ? Capabilities.NEED_OVERLAY : null;
                 }
                 case SHELF_EDIT: {   // only to add it: one already among the buttons can still move or go
                     String key = shelfRows.get(pickScroll + i)[0];
-                    return editingTop && HomeApps.TOP_LIVE.equals(key) && !shelfOrder.contains(key) ? Capabilities.NEED_LIVE_TV : null;
+                    if (!editingTop || shelfOrder.contains(key)) return null;
+                    return HomeApps.TOP_LIVE.equals(key) ? Capabilities.NEED_LIVE_TV
+                            : HomeApps.TOP_STORE.equals(key) ? Capabilities.NEED_APP_STORE : null;
                 }
                 default:
                     return null;
@@ -1373,6 +1380,8 @@ public class SettingsActivity extends Activity {
                 if (focus == 0) {
                     int n = Prefs.cards() - 3, span = Recs.MAX_CARDS - 3 + 1;
                     Prefs.setCards(3 + (n + dir + span) % span);
+                } else if (focus == 2) {
+                    Prefs.setHideAnimation(!Prefs.hideAnimation());
                 }
                 return;
             }
@@ -1444,6 +1453,11 @@ public class SettingsActivity extends Activity {
                     int at = java.util.Arrays.asList(RECENTS).indexOf(Prefs.recents());
                     Prefs.setRecents(RECENTS[(at + dir + RECENTS.length) % RECENTS.length]);
                     break;
+                }
+                case POWER_ON_ROW: {   // read at the next full start (HomeMode.bootCheck, HomeActivity)
+                    int at = java.util.Arrays.asList(Prefs.POWER_ON).indexOf(Prefs.powerOn());
+                    Prefs.setPowerOn(Prefs.POWER_ON[(at + dir + Prefs.POWER_ON.length) % Prefs.POWER_ON.length]);
+                    return;
                 }
                 case ANDROID_APPS_ROW: Prefs.setAndroidApps(!Prefs.androidApps()); break;
                 case STATUS_ICONS_ROW: {
@@ -2085,7 +2099,7 @@ public class SettingsActivity extends Activity {
         private void toggleShelfApp() {
             String pkg = shelfRows.get(pickScroll + focus)[0];
             if (shelfOrder.contains(pkg)) shelfOrder.remove(pkg);
-            else if (editingTop || shelfOrder.size() < HomeApps.maxShelf(getContext())) shelfOrder.add(pkg);   // three buttons: no limit to reach
+            else if (editingTop || shelfOrder.size() < HomeApps.maxShelf(getContext())) shelfOrder.add(pkg);
             else return;
             refreshShelfRows(pkg);
         }
@@ -2199,10 +2213,10 @@ public class SettingsActivity extends Activity {
                     LIST_X * k + 30 * k, hy, hint);
         }
 
-        /** "Some" only when one of the services the TV has is off (a service it doesn't have, or a typo in hide_services, doesn't count). */
+        /** "Some" only when one of the services the TV has is off (one it doesn't have, a typo in hide_services, or one found by name that starts off, doesn't count). */
         private void countServicesOff() {
             someServicesOff = false;
-            for (String[] service : Recs.installedServices(getContext())) someServicesOff |= Prefs.serviceOff(service[0]);
+            for (String[] service : Recs.installedServices(getContext())) someServicesOff |= service[0].indexOf('.') < 0 && Prefs.serviceOff(service[0]);
         }
 
         private void toggleService() {
@@ -2279,6 +2293,8 @@ public class SettingsActivity extends Activity {
                     ? Ui.tr("Send them from a computer: see “Your own photos” in the README.")
                     : Ui.tr("OK removes them; the arrows turn them on or off."))
                     : screen == POWER && powerRow() != P_SHOW && unavailable(focus) == null ? Ui.tr("OK opens the list. ← → change the value.")
+                    : screen == HOME_SETTINGS && from + focus == POWER_ON_ROW && unavailable(focus) == null
+                    ? Ui.tr("Only after a full start, not from standby.")
                     : screen == HOME_SETTINGS && from + focus == keyRow() ? Ui.tr("OK: send it from your phone, or type it.")
                     : screen == HOME_SETTINGS && from + focus == updatesRow() ? (Updates.ready(updates, installed)
                     ? Ui.tr("OK installs it; Android asks first.") : Ui.tr("OK checks for a new version."))

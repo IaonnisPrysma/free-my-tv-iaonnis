@@ -761,6 +761,8 @@
         step: function (d) { cycle('saver', ['photos', 'clock'], saverMode(), d); }},
       {label: tr('Picks per tab'), value: String(Prefs.cards()),
         step: function (d) { Prefs.set('cards', 3 + (Prefs.cards() - 3 + (d || 1) + 4) % 4); renderCards(); }},
+      {label: tr('Cartoons and anime'), toggle: !Prefs.hideAnimation(),
+        step: function () { Prefs.set('hideAnimation', !Prefs.hideAnimation()); Data.refresh(); }},
       {label: tr('Watch from the screensaver'), toggle: Prefs.saverWatch(),
         step: function () { Prefs.set('saverWatch', !Prefs.saverWatch()); }},
       {label: tr('Weather widget'), toggle: Prefs.weather(),
@@ -794,6 +796,11 @@
             step: function () { Prefs.setServiceOff(key, !Prefs.serviceOff(key)); Data.refresh(); Data.settingsChanged(); }});
         })(sv[j].key, sv[j].name);
       }
+    }
+    if (nuvio()) {
+      var open = Prefs.openPicks();
+      rows.push({label: tr('Open picks in'), value: open === 'nuvio' ? 'Nuvio' : tr('Streaming apps'),
+        step: function (d) { cycle('openPicks', ['apps', 'nuvio'], open, d); }});
     }
     rows.push({label: tr('Shelf'), value: '›', shelf: true, step: function (d) { if (d >= 0) openShelfEdit(); }});
     rows.push({label: tr('About this TV'), value: '›', about: true, step: function (d) { if (d >= 0) openAbout(); }});
@@ -1238,9 +1245,17 @@
 
   // MARK: - Opening things
 
-  function launcher(id, name) {
+  /** Nuvio, when the TV has it: picks can open on its page there (Home Settings, Open picks in). LG only for now:
+   *  Samsung's launch passes no data, so Nuvio would open on its Home. */
+  function nuvio() {
+    if (TV.name !== 'webos') return null;
+    for (var i = 0; i < apps.length; i++) if (/nuvio/i.test(apps[i].id) || /^nuvio\b/i.test(apps[i].title)) return apps[i];
+    return null;
+  }
+
+  function launcher(id, name, params) {
     return function () {
-      TV.launch(id, null, function (ok) {
+      TV.launch(id, params || null, function (ok) {
         if (!ok) toast(trf("Couldn't open {app}.", {app: name || id}));
       });
     };
@@ -1266,8 +1281,10 @@
         else openSettings();
         return;
       case Z.CARDS:
-        var p = cards[st.card], app = p && Data.appFor(p.app);
-        if (app) launcher(app.id, app.title)();
+        var p = cards[st.card], via = p && Prefs.openPicks() === 'nuvio' ? nuvio() : null;
+        var app = via || (p && Data.appFor(p.app));
+        // Nuvio's own link for the title, as on Android (nuvio://tmdb/movie/603); webOS apps get links as contentTarget.
+        if (app) launcher(app.id, app.title, via ? {contentTarget: 'nuvio://tmdb/' + (p.kind === 'tv' ? 'series' : 'movie') + '/' + p.id} : null)();
         return;
       case Z.SHELF:
         if (shelf[st.shelf]) launcher(shelf[st.shelf].id, shelf[st.shelf].title)();
